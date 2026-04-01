@@ -132,6 +132,31 @@
     .color-dot:hover { transform: scale(1.15); }
     .color-dot.active { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.2); }
 
+    /* Custom color picker button */
+    .color-picker-wrap {
+      position: relative;
+      width: 22px; height: 22px;
+    }
+    .color-picker-btn {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red);
+      transition: all 0.12s;
+    }
+    .color-picker-btn:hover { transform: scale(1.15); }
+    .color-picker-btn.active { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.2); }
+    .color-picker-input {
+      position: absolute;
+      top: 0; left: 0;
+      width: 22px; height: 22px;
+      opacity: 0;
+      cursor: pointer;
+      border: none;
+      padding: 0;
+    }
+
     /* Stroke width */
     .stroke-slider {
       width: 70px;
@@ -280,14 +305,26 @@
       <div class="color-dot" data-color="#118ab2" style="background:#118ab2"></div>
       <div class="color-dot" data-color="#ffffff" style="background:#ffffff"></div>
       <div class="color-dot" data-color="#000000" style="background:#000000; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.3);"></div>
+      <div class="color-picker-wrap">
+        <div class="color-picker-btn" id="color-picker-btn"></div>
+        <input type="color" class="color-picker-input" id="color-picker" value="#e63946" />
+      </div>
     </div>
 
     <div class="tool-sep"></div>
 
-    <!-- Stroke width -->
-    <div class="tool-group">
+    <!-- Stroke width (shown for non-text tools) -->
+    <div class="tool-group" id="stroke-group">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;opacity:0.4"><line x1="3" y1="12" x2="21" y2="12"/></svg>
       <input type="range" class="stroke-slider" id="stroke-width" min="1" max="12" value="3" />
       <span id="stroke-label">3</span>
+    </div>
+
+    <!-- Font size (shown for text tool) -->
+    <div class="tool-group" id="fontsize-group" style="display:none;">
+      <span style="color:rgba(255,255,255,0.4);font-size:11px;font-weight:600;">A</span>
+      <input type="range" class="stroke-slider" id="font-size" min="12" max="72" value="20" />
+      <span id="fontsize-label">20px</span>
     </div>
 
     <div class="tool-sep"></div>

@@ -19,6 +19,7 @@ let mode = 'select'; // 'select' | 'annotate'
 let tool = 'rect';
 let color = '#e63946';
 let strokeWidth = 3;
+let fontSize = 20;
 let annotations = [];
 let currentAnnotation = null;
 let isDrawing = false;
@@ -349,28 +350,63 @@ toolbar.addEventListener('mousedown', (e) => e.stopPropagation());
 toolbar.addEventListener('mouseup', (e) => e.stopPropagation());
 toolbar.addEventListener('click', (e) => e.stopPropagation());
 
+function setActiveTool(newTool) {
+  tool = newTool;
+  document.querySelectorAll('.tool-btn[data-tool]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.tool === tool);
+  });
+  drawCanvas.style.cursor = tool === 'text' ? 'text' : 'crosshair';
+
+  // Toggle stroke width vs font size slider
+  document.getElementById('stroke-group').style.display = tool === 'text' ? 'none' : 'flex';
+  document.getElementById('fontsize-group').style.display = tool === 'text' ? 'flex' : 'none';
+}
+
 document.querySelectorAll('.tool-btn[data-tool]').forEach((btn) => {
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    document.querySelectorAll('.tool-btn[data-tool]').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    tool = btn.dataset.tool;
-    drawCanvas.style.cursor = tool === 'text' ? 'text' : 'crosshair';
+    setActiveTool(btn.dataset.tool);
   });
 });
+
+function setColor(newColor) {
+  color = newColor;
+  document.querySelectorAll('.color-dot').forEach((d) => d.classList.remove('active'));
+  document.getElementById('color-picker-btn').classList.remove('active');
+  // Check if it matches a preset
+  const preset = document.querySelector(`.color-dot[data-color="${newColor}"]`);
+  if (preset) {
+    preset.classList.add('active');
+  } else {
+    document.getElementById('color-picker-btn').classList.add('active');
+    document.getElementById('color-picker-btn').style.background = newColor;
+  }
+  document.getElementById('color-picker').value = newColor;
+}
 
 document.querySelectorAll('.color-dot').forEach((dot) => {
   dot.addEventListener('click', (e) => {
     e.stopPropagation();
-    document.querySelectorAll('.color-dot').forEach((d) => d.classList.remove('active'));
-    dot.classList.add('active');
-    color = dot.dataset.color;
+    setColor(dot.dataset.color);
   });
 });
+
+const colorPicker = document.getElementById('color-picker');
+colorPicker.addEventListener('input', (e) => {
+  e.stopPropagation();
+  setColor(e.target.value);
+});
+colorPicker.addEventListener('click', (e) => e.stopPropagation());
+colorPicker.addEventListener('mousedown', (e) => e.stopPropagation());
 
 document.getElementById('stroke-width').addEventListener('input', (e) => {
   strokeWidth = parseInt(e.target.value);
   document.getElementById('stroke-label').textContent = strokeWidth;
+});
+
+document.getElementById('font-size').addEventListener('input', (e) => {
+  fontSize = parseInt(e.target.value);
+  document.getElementById('fontsize-label').textContent = fontSize + 'px';
 });
 
 document.getElementById('undo-btn').addEventListener('click', (e) => {
@@ -469,7 +505,7 @@ function showTextInput(x, y) {
   textInput.style.top = y + 'px';
   textInput.style.color = color;
   textInput.style.borderColor = color;
-  textInput.style.fontSize = Math.max(14, strokeWidth * 5) + 'px';
+  textInput.style.fontSize = fontSize + 'px';
   textInput.value = '';
 
   // Delay focus so browser finishes processing the click event chain
@@ -478,6 +514,7 @@ function showTextInput(x, y) {
   }, 30);
 
   let committed = false;
+  const capturedFontSize = fontSize; // capture current value at placement time
 
   const commitText = () => {
     if (committed) return;
@@ -488,11 +525,10 @@ function showTextInput(x, y) {
       annotations.push({
         type: 'text',
         color,
-        strokeWidth,
         text,
         x,
         y,
-        fontSize: Math.max(14, strokeWidth * 5),
+        fontSize: capturedFontSize,
       });
       redrawAnnotations();
     }
@@ -773,11 +809,7 @@ document.addEventListener('keydown', (e) => {
     const keyMap = { r: 'rect', h: 'highlight', a: 'arrow', p: 'pen', t: 'text', b: 'blur' };
     if (keyMap[e.key]) {
       e.preventDefault();
-      tool = keyMap[e.key];
-      document.querySelectorAll('.tool-btn[data-tool]').forEach((btn) => {
-        btn.classList.toggle('active', btn.dataset.tool === tool);
-      });
-      drawCanvas.style.cursor = tool === 'text' ? 'text' : 'crosshair';
+      setActiveTool(keyMap[e.key]);
     }
   }
 });

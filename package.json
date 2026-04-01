@@ -13,8 +13,11 @@
     "productName": "SnapMark",
     "mac": {
       "category": "public.app-category.utilities",
-      "target": ["dmg"],
-      "icon": "assets/icon.icns"
+      "target": ["dmg", "zip"],
+      "icon": "assets/icon.icns",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
     },
     "win": {
       "target": ["nsis"],

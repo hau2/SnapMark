@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'" />
+  <title>SnapMark Selector</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: transparent;
+      cursor: crosshair;
+      user-select: none;
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    }
+
+    #bg-canvas, #draw-canvas, #overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+    }
+    #bg-canvas { z-index: 1; }
+    #overlay { z-index: 2; pointer-events: none; }
+    #draw-canvas { z-index: 3; }
+
+    /* ── Hint text ────────────────────────────────────────────── */
+    #hint {
+      position: fixed;
+      z-index: 15;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: rgba(255,255,255,0.7);
+      font-size: 16px;
+      font-weight: 400;
+      pointer-events: none;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.8);
+      transition: opacity 0.2s;
+    }
+    #hint.hidden { opacity: 0; }
+
+    /* ── Dimension label while dragging ────────────────────────── */
+    #dim-label {
+      position: fixed;
+      z-index: 10;
+      background: rgba(0,0,0,0.8);
+      color: #fff;
+      font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      display: none;
+      pointer-events: none;
+      letter-spacing: 0.3px;
+    }
+
+    /* ── Toolbar ──────────────────────────────────────────────── */
+    #toolbar {
+      position: fixed;
+      z-index: 200;
+      display: none;
+      background: rgba(15, 15, 28, 0.92);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 14px;
+      padding: 8px 10px;
+      gap: 6px;
+      align-items: center;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05) inset;
+    }
+    #toolbar.visible { display: flex; }
+
+    .tool-group {
+      display: flex;
+      gap: 3px;
+      align-items: center;
+    }
+    .tool-sep {
+      width: 1px;
+      height: 24px;
+      background: rgba(255,255,255,0.1);
+      margin: 0 4px;
+    }
+
+    /* Tool buttons with SVG icons */
+    .tool-btn {
+      width: 34px; height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      color: rgba(255,255,255,0.6);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.12s;
+      position: relative;
+    }
+    .tool-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+    .tool-btn.active { background: rgba(230,57,70,0.25); color: #fff; }
+    .tool-btn svg { width: 18px; height: 18px; }
+    .tool-btn .tooltip {
+      position: absolute;
+      bottom: -28px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.85);
+      color: #fff;
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s;
+    }
+    .tool-btn:hover .tooltip { opacity: 1; }
+
+    /* Color picker */
+    .color-dot {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.12s;
+      position: relative;
+    }
+    .color-dot:hover { transform: scale(1.15); }
+    .color-dot.active { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.2); }
+
+    /* Stroke width */
+    .stroke-slider {
+      width: 70px;
+      height: 6px;
+      -webkit-appearance: none;
+      background: rgba(255,255,255,0.15);
+      border-radius: 3px;
+      outline: none;
+      margin: 0 4px;
+    }
+    .stroke-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px; height: 16px;
+      background: #e63946;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    #stroke-label {
+      color: rgba(255,255,255,0.4);
+      font-size: 10px;
+      min-width: 18px;
+      text-align: center;
+    }
+
+    /* Action buttons */
+    .action-btn {
+      padding: 7px 16px;
+      border-radius: 8px;
+      border: none;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.12s;
+      white-space: nowrap;
+      letter-spacing: 0.2px;
+    }
+    .action-btn.primary {
+      background: #e63946;
+      color: #fff;
+    }
+    .action-btn.primary:hover { background: #ff4d5a; transform: translateY(-1px); }
+    .action-btn.secondary {
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.8);
+    }
+    .action-btn.secondary:hover { background: rgba(255,255,255,0.14); color: #fff; }
+    .action-btn.ghost {
+      background: transparent;
+      color: rgba(255,255,255,0.5);
+    }
+    .action-btn.ghost:hover { color: rgba(255,255,255,0.8); }
+
+    /* ── Toast notification ───────────────────────────────────── */
+    #toast {
+      position: fixed;
+      z-index: 300;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-60px);
+      background: rgba(15, 15, 28, 0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      pointer-events: none;
+      opacity: 0;
+      transition: all 0.3s ease;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    #toast .toast-icon { margin-right: 8px; }
+
+    /* ── Text input ───────────────────────────────────────────── */
+    #text-input {
+      position: fixed;
+      z-index: 250;
+      display: none;
+      background: rgba(0,0,0,0.4);
+      border: 2px solid rgba(255,255,255,0.5);
+      border-radius: 6px;
+      color: #fff;
+      font-family: system-ui, sans-serif;
+      font-size: 16px;
+      padding: 8px 10px;
+      min-width: 150px;
+      min-height: 32px;
+      outline: none;
+      resize: none;
+      caret-color: #e63946;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="bg-canvas"></canvas>
+  <canvas id="overlay"></canvas>
+  <canvas id="draw-canvas"></canvas>
+
+  <div id="hint">Click and drag to select a region</div>
+  <div id="dim-label"></div>
+  <div id="toast"><span class="toast-icon"></span><span class="toast-text"></span></div>
+
+  <div id="toolbar">
+    <!-- Drawing tools -->
+    <div class="tool-group">
+      <button class="tool-btn active" data-tool="rect">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+        <span class="tooltip">Rectangle</span>
+      </button>
+      <button class="tool-btn" data-tool="highlight">
+        <svg viewBox="0 0 24 24" fill="currentColor" opacity="0.5"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+        <span class="tooltip">Highlight</span>
+      </button>
+      <button class="tool-btn" data-tool="arrow">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="10,5 19,5 19,14"/></svg>
+        <span class="tooltip">Arrow</span>
+      </button>
+      <button class="tool-btn" data-tool="pen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17c3-3 6-7 9-7s3 4 6 4 3-3 3-3"/></svg>
+        <span class="tooltip">Pen</span>
+      </button>
+      <button class="tool-btn" data-tool="text">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4,7 4,4 20,4 20,7"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="8" y1="20" x2="16" y2="20"/></svg>
+        <span class="tooltip">Text</span>
+      </button>
+      <button class="tool-btn" data-tool="blur">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="7" x2="7" y2="7.01" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="7" x2="12" y2="7.01" stroke-width="3" stroke-linecap="round"/><line x1="17" y1="7" x2="17" y2="7.01" stroke-width="3" stroke-linecap="round"/><line x1="7" y1="12" x2="7" y2="12.01" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="12.01" stroke-width="3" stroke-linecap="round"/><line x1="17" y1="12" x2="17" y2="12.01" stroke-width="3" stroke-linecap="round"/><line x1="7" y1="17" x2="7" y2="17.01" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="17" x2="12" y2="17.01" stroke-width="3" stroke-linecap="round"/><line x1="17" y1="17" x2="17" y2="17.01" stroke-width="3" stroke-linecap="round"/></svg>
+        <span class="tooltip">Pixelate</span>
+      </button>
+    </div>
+
+    <div class="tool-sep"></div>
+
+    <!-- Colors -->
+    <div class="tool-group">
+      <div class="color-dot active" data-color="#e63946" style="background:#e63946"></div>
+      <div class="color-dot" data-color="#ffbe0b" style="background:#ffbe0b"></div>
+      <div class="color-dot" data-color="#06d6a0" style="background:#06d6a0"></div>
+      <div class="color-dot" data-color="#118ab2" style="background:#118ab2"></div>
+      <div class="color-dot" data-color="#ffffff" style="background:#ffffff"></div>
+      <div class="color-dot" data-color="#000000" style="background:#000000; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.3);"></div>
+    </div>
+
+    <div class="tool-sep"></div>
+
+    <!-- Stroke width -->
+    <div class="tool-group">
+      <input type="range" class="stroke-slider" id="stroke-width" min="1" max="12" value="3" />
+      <span id="stroke-label">3</span>
+    </div>
+
+    <div class="tool-sep"></div>
+
+    <!-- Undo -->
+    <div class="tool-group">
+      <button class="tool-btn" id="undo-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        <span class="tooltip">Undo</span>
+      </button>
+    </div>
+
+    <div class="tool-sep"></div>
+
+    <!-- Actions -->
+    <div class="tool-group" style="gap: 6px;">
+      <button class="action-btn primary" id="copy-btn">Copy</button>
+      <button class="action-btn secondary" id="save-btn">Save As</button>
+      <button class="action-btn ghost" id="cancel-btn">Esc</button>
+    </div>
+  </div>
+
+  <textarea id="text-input" rows="1"></textarea>
+
+  <script src="editor.js"></script>
+</body>
+</html>

@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'" />
+  <title>SnapMark</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0d0d1a;
+      --surface: #13131f;
+      --surface2: #1a1a2e;
+      --accent: #e63946;
+      --accent-hover: #ff4d5a;
+      --green: #06d6a0;
+      --text: #e0e0e0;
+      --text-dim: #6b6b80;
+      --border: #22223a;
+      --radius: 10px;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* ── Titlebar ─────────────────────────────────────────────── */
+    .titlebar {
+      -webkit-app-region: drag;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      padding-left: 80px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .titlebar .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .titlebar .logo-icon {
+      width: 20px; height: 20px;
+      background: var(--accent);
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .titlebar .logo-icon svg { width: 12px; height: 12px; }
+    .titlebar h1 {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+    }
+    .titlebar .actions {
+      margin-left: auto;
+      display: flex;
+      gap: 8px;
+      -webkit-app-region: no-drag;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: none;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      letter-spacing: 0.2px;
+    }
+    .btn svg { width: 14px; height: 14px; }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      padding: 7px 14px;
+    }
+    .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      padding: 7px 14px;
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: var(--border); }
+    .btn-icon {
+      background: var(--surface2);
+      color: var(--text-dim);
+      padding: 7px 9px;
+      border: 1px solid var(--border);
+    }
+    .btn-icon:hover { color: var(--text); background: var(--border); }
+    .btn-ghost {
+      background: none;
+      color: var(--text-dim);
+      padding: 6px;
+      border: none;
+    }
+    .btn-ghost:hover { color: var(--text); }
+
+    /* ── Content ──────────────────────────────────────────────── */
+    .content {
+      height: calc(100vh - 52px);
+      overflow-y: auto;
+      padding: 20px 24px;
+    }
+
+    /* ── Gallery View ─────────────────────────────────────────── */
+    .gallery-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+    .gallery-header h2 {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text-dim);
+    }
+    .gallery-header .header-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 100px 20px 60px;
+      color: var(--text-dim);
+    }
+    .empty-icon {
+      width: 80px; height: 80px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+    }
+    .empty-icon svg { width: 36px; height: 36px; color: var(--text-dim); opacity: 0.4; }
+    .empty-state h3 { font-size: 16px; font-weight: 500; margin-bottom: 8px; color: var(--text); }
+    .empty-state p { font-size: 13px; line-height: 1.5; max-width: 320px; margin: 0 auto; }
+    .empty-state .hotkey-badge {
+      display: inline-block;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+      font-size: 12px;
+      color: var(--text);
+      margin-top: 14px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 14px;
+    }
+    .grid-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+      position: relative;
+    }
+    .grid-item:hover {
+      border-color: rgba(230,57,70,0.4);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+    }
+    .grid-item .thumb {
+      width: 100%;
+      height: 150px;
+      object-fit: cover;
+      display: block;
+      background: var(--bg);
+    }
+    /* Hover overlay with actions */
+    .grid-item .hover-actions {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 150px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: rgba(0,0,0,0.6);
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+    .grid-item:hover .hover-actions { opacity: 1; }
+    .hover-actions .btn {
+      font-size: 11px;
+      padding: 6px 12px;
+    }
+
+    .grid-item .meta {
+      padding: 10px 12px;
+      font-size: 11px;
+      color: var(--text-dim);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .grid-item .delete-btn {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 13px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: all 0.15s;
+    }
+    .grid-item:hover .delete-btn { opacity: 1; }
+    .grid-item .delete-btn:hover { color: var(--accent); background: rgba(230,57,70,0.1); }
+
+    /* ── Settings View ────────────────────────────────────────── */
+    #settings-view { display: none; }
+    .settings-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 14px;
+    }
+    .settings-section h3 {
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 16px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .setting-row:last-child { margin-bottom: 0; }
+    .setting-row label { font-size: 13px; color: var(--text); }
+    .hotkey-input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      min-width: 200px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s;
+      font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    }
+    .hotkey-input:focus, .hotkey-input.listening {
+      border-color: var(--accent);
+      outline: none;
+    }
+    .hotkey-input.listening { animation: pulse 1s infinite; }
+    @keyframes pulse {
+      0%, 100% { border-color: var(--accent); }
+      50% { border-color: transparent; }
+    }
+
+    .toggle-switch { position: relative; width: 44px; height: 24px; }
+    .toggle-switch input { display: none; }
+    .toggle-slider {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-slider::after {
+      content: '';
+      position: absolute;
+      width: 18px; height: 18px;
+      left: 2px; top: 2px;
+      background: var(--text-dim);
+      border-radius: 50%;
+      transition: transform 0.2s, background 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: var(--accent); border-color: var(--accent); }
+    .toggle-switch input:checked + .toggle-slider::after { transform: translateX(20px); background: white; }
+
+    /* ── Preview Modal ────────────────────────────────────────── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.88);
+      z-index: 1000;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal-content {
+      max-width: 90vw;
+      max-height: 78vh;
+      position: relative;
+    }
+    .modal-content img {
+      max-width: 100%;
+      max-height: 78vh;
+      border-radius: 8px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+      justify-content: center;
+    }
+    .modal-close {
+      position: absolute;
+      top: -40px;
+      right: 0;
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.5);
+      font-size: 24px;
+      cursor: pointer;
+      transition: color 0.15s;
+    }
+    .modal-close:hover { color: #fff; }
+
+    /* ── Toast ────────────────────────────────────────────────── */
+    #toast {
+      position: fixed;
+      z-index: 2000;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(60px);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      pointer-events: none;
+      opacity: 0;
+      transition: all 0.3s ease;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    #toast.success { border-color: var(--green); }
+    #toast.success .toast-dot { background: var(--green); }
+    .toast-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    /* ── Scrollbar ────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+  </style>
+</head>
+<body>
+  <div class="titlebar">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/></svg>
+      </div>
+      <h1>SnapMark</h1>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="captureRegion()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3H3v3"/><path d="M18 3h3v3"/><path d="M6 21H3v-3"/><path d="M18 21h3v-3"/></svg>
+        Region
+      </button>
+      <button class="btn btn-secondary" onclick="captureFullscreen()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        Fullscreen
+      </button>
+      <button class="btn btn-icon" onclick="showSettings()" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- Gallery -->
+    <div id="gallery-view">
+      <div class="gallery-header">
+        <h2 id="gallery-title">Recent Screenshots</h2>
+        <div class="header-actions">
+          <button class="btn btn-ghost" onclick="openFolder()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            Open Folder
+          </button>
+        </div>
+      </div>
+      <div id="gallery-grid" class="grid"></div>
+      <div id="empty-state" class="empty-state" style="display:none;">
+        <div class="empty-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3H3v3"/><path d="M18 3h3v3"/><path d="M6 21H3v-3"/><path d="M18 21h3v-3"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
+        <h3>No screenshots yet</h3>
+        <p>Capture your screen, annotate it, and share. Use the button above or press:</p>
+        <div class="hotkey-badge" id="hotkey-hint"></div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div id="settings-view">
+      <button class="btn btn-secondary" onclick="showGallery()" style="margin-bottom: 18px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="15 18 9 12 15 6"/></svg>
+        Back
+      </button>
+
+      <div class="settings-section">
+        <h3>Hotkeys</h3>
+        <div class="setting-row">
+          <label>Capture Region</label>
+          <div class="hotkey-input" id="hotkey-region" tabindex="0" data-key="captureRegion"></div>
+        </div>
+        <div class="setting-row">
+          <label>Capture Fullscreen</label>
+          <div class="hotkey-input" id="hotkey-fullscreen" tabindex="0" data-key="captureFullscreen"></div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>Behavior</h3>
+        <div class="setting-row">
+          <label>Copy to clipboard after capture</label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="auto-copy" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Preview Modal -->
+  <div class="modal-overlay" id="preview-modal">
+    <div class="modal-content">
+      <button class="modal-close" onclick="closePreview()">&times;</button>
+      <img id="preview-img" src="" alt="Preview" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="modal-copy-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copy to Clipboard
+      </button>
+      <button class="btn btn-secondary" id="modal-save-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Save As
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast"><div class="toast-dot"></div><span class="toast-text"></span></div>
+
+  <script src="settings.js"></script>
+  <script>
+    let currentSettings = null;
+    let currentPreviewPath = null;
+
+    function showToast(message, type) {
+      const toast = document.getElementById('toast');
+      toast.querySelector('.toast-text').textContent = message;
+      toast.className = 'show' + (type === 'success' ? ' success' : '');
+      setTimeout(() => { toast.className = ''; }, 2500);
+    }
+
+    async function init() {
+      currentSettings = await window.snapmark.getSettings();
+      document.getElementById('hotkey-hint').textContent = formatHotkey(currentSettings.hotkeys.captureRegion);
+      loadScreenshots();
+    }
+
+    // ── Gallery ─────────────────────────────────────────────────
+    async function loadScreenshots() {
+      const screenshots = await window.snapmark.getScreenshots();
+      const grid = document.getElementById('gallery-grid');
+      const empty = document.getElementById('empty-state');
+      const title = document.getElementById('gallery-title');
+
+      if (screenshots.length === 0) {
+        grid.style.display = 'none';
+        empty.style.display = 'block';
+        title.textContent = 'Recent Screenshots';
+        return;
+      }
+
+      grid.style.display = 'grid';
+      empty.style.display = 'none';
+      title.textContent = `Recent Screenshots (${screenshots.length})`;
+      grid.innerHTML = '';
+
+      for (const s of screenshots) {
+        const item = document.createElement('div');
+        item.className = 'grid-item';
+
+        const date = new Date(s.mtime);
+        const timeStr = date.toLocaleString(undefined, {
+          month: 'short', day: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        });
+
+        item.innerHTML = `
+          <img class="thumb" src="" alt="${s.name}" />
+          <div class="hover-actions">
+            <button class="btn btn-primary copy-hover-btn">Copy</button>
+            <button class="btn btn-secondary save-hover-btn">Save As</button>
+          </div>
+          <div class="meta">
+            <span>${timeStr}</span>
+            <button class="delete-btn" title="Delete">&times;</button>
+          </div>
+        `;
+
+        const img = item.querySelector('.thumb');
+        window.snapmark.getScreenshotData(s.path).then(data => {
+          if (data) img.src = data;
+        });
+
+        // Click anywhere on the card opens preview
+        item.addEventListener('click', () => openPreview(s.path));
+
+        // Hover action buttons stop propagation so they don't trigger preview
+        item.querySelector('.copy-hover-btn').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const ok = await window.snapmark.copyScreenshotToClipboard(s.path);
+          showToast(ok ? 'Copied to clipboard' : 'Failed to copy', ok ? 'success' : '');
+        });
+
+        item.querySelector('.save-hover-btn').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await window.snapmark.saveScreenshotAs(s.path);
+        });
+
+        item.querySelector('.delete-btn').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await window.snapmark.deleteScreenshot(s.path);
+          loadScreenshots();
+          showToast('Screenshot deleted', '');
+        });
+
+        grid.appendChild(item);
+      }
+    }
+
+    async function openPreview(filePath) {
+      currentPreviewPath = filePath;
+      const data = await window.snapmark.getScreenshotData(filePath);
+      if (data) {
+        document.getElementById('preview-img').src = data;
+        document.getElementById('preview-modal').classList.add('active');
+      }
+    }
+
+    function closePreview() {
+      document.getElementById('preview-modal').classList.remove('active');
+      currentPreviewPath = null;
+    }
+
+    // Modal action buttons
+    document.getElementById('modal-copy-btn').addEventListener('click', async () => {
+      if (!currentPreviewPath) return;
+      const ok = await window.snapmark.copyScreenshotToClipboard(currentPreviewPath);
+      if (ok) {
+        showToast('Copied to clipboard', 'success');
+        closePreview();
+      }
+    });
+
+    document.getElementById('modal-save-btn').addEventListener('click', async () => {
+      if (!currentPreviewPath) return;
+      await window.snapmark.saveScreenshotAs(currentPreviewPath);
+    });
+
+    document.getElementById('preview-modal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) closePreview();
+    });
+
+    // ── Navigation ──────────────────────────────────────────────
+    function showSettings() {
+      document.getElementById('gallery-view').style.display = 'none';
+      document.getElementById('settings-view').style.display = 'block';
+      initSettings();
+    }
+
+    function showGallery() {
+      document.getElementById('settings-view').style.display = 'none';
+      document.getElementById('gallery-view').style.display = 'block';
+      loadScreenshots();
+    }
+
+    // ── Capture triggers ────────────────────────────────────────
+    function captureRegion() { window.snapmark.captureRegion(); }
+    function captureFullscreen() { window.snapmark.captureFullscreen(); }
+    function openFolder() { window.snapmark.openScreenshotFolder(); }
+
+    // ── Events from main ────────────────────────────────────────
+    window.snapmark.onScreenshotsUpdated(() => loadScreenshots());
+    window.snapmark.onOpenSettings(() => showSettings());
+
+    // ── Keyboard ────────────────────────────────────────────────
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closePreview();
+    });
+
+    init();
+  </script>
+</body>
+</html>

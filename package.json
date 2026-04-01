@@ -20,8 +20,18 @@
       "gatekeeperAssess": false
     },
     "win": {
-      "target": ["nsis"],
+      "target": ["nsis", "portable"],
       "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "SnapMark-Portable-${version}.${ext}"
     },
     "files": [
       "main.js",

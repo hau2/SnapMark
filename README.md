@@ -57,10 +57,11 @@ All annotation happens inline on a fullscreen overlay — no separate editor win
 
 Go to the [Releases](https://github.com/hau2/SnapMark/releases) page and download the latest version:
 
-| Platform | File |
-|----------|------|
-| macOS | `SnapMark-x.x.x-universal.dmg` |
-| Windows | `SnapMark-Setup-x.x.x.exe` |
+| Platform | File | Description |
+|----------|------|-------------|
+| macOS | `SnapMark-x.x.x-universal.dmg` | Drag to Applications |
+| Windows (installer) | `SnapMark-Setup-x.x.x.exe` | Installs with Start Menu shortcut |
+| Windows (portable) | `SnapMark-Portable-x.x.x.exe` | Run directly, no install needed |
 
 ### macOS — Bypass Gatekeeper
 

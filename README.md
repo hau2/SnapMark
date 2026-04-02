@@ -73,7 +73,8 @@ Go to the [Releases](https://github.com/hau2/SnapMark/releases) page and downloa
 
 | Platform | File | Description |
 |----------|------|-------------|
-| macOS | `SnapMark-x.x.x-universal.dmg` | Drag to Applications |
+| macOS (installer) | `SnapMark-x.x.x-universal.dmg` | Drag to Applications |
+| macOS (portable) | `SnapMark-x.x.x-universal-mac.zip` | Extract and run, no install needed |
 | Windows (installer) | `SnapMark-Setup-x.x.x.exe` | Installs with Start Menu shortcut |
 | Windows (portable) | `SnapMark-Portable-x.x.x.exe` | Run directly, no install needed |
 

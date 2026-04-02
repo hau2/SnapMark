@@ -23,7 +23,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mac-build
-          path: dist/*.dmg
+          path: |
+            dist/*.dmg
+            dist/*.zip
 
   build-windows:
     runs-on: windows-latest

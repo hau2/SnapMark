@@ -184,13 +184,58 @@ function getTextBounds(a) {
   };
 }
 
+function getAnnotationBounds(a) {
+  if (a.type === 'text') return getTextBounds(a);
+  if (a.type === 'pen') {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of a.points) {
+      if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
+    }
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+  // rect, highlight, line, arrow, blur
+  const x = Math.min(a.startX, a.endX), y = Math.min(a.startY, a.endY);
+  return { x, y, w: Math.abs(a.endX - a.startX), h: Math.abs(a.endY - a.startY) };
+}
+
+function pointNearLine(mx, my, x1, y1, x2, y2, threshold) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1) return Math.hypot(mx - x1, my - y1) <= threshold;
+  const t = Math.max(0, Math.min(1, ((mx - x1) * dx + (my - y1) * dy) / (len * len)));
+  const px = x1 + t * dx, py = y1 + t * dy;
+  return Math.hypot(mx - px, my - py) <= threshold;
+}
+
 function hitTestAnnotation(mx, my) {
-  // Search in reverse so topmost annotation is found first
+  const tolerance = 6;
   for (let i = annotations.length - 1; i >= 0; i--) {
     const a = annotations[i];
+
     if (a.type === 'text') {
       const b = getTextBounds(a);
       if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) return i;
+    } else if (a.type === 'line' || a.type === 'arrow') {
+      if (pointNearLine(mx, my, a.startX, a.startY, a.endX, a.endY, tolerance + a.strokeWidth)) return i;
+    } else if (a.type === 'pen') {
+      for (let j = 1; j < a.points.length; j++) {
+        if (pointNearLine(mx, my, a.points[j-1].x, a.points[j-1].y, a.points[j].x, a.points[j].y, tolerance + a.strokeWidth)) return i;
+      }
+    } else if (a.type === 'rect') {
+      // Hit test the 4 edges of the rectangle
+      const x1 = Math.min(a.startX, a.endX), y1 = Math.min(a.startY, a.endY);
+      const x2 = Math.max(a.startX, a.endX), y2 = Math.max(a.startY, a.endY);
+      const t = tolerance + a.strokeWidth;
+      if (pointNearLine(mx, my, x1, y1, x2, y1, t) ||
+          pointNearLine(mx, my, x2, y1, x2, y2, t) ||
+          pointNearLine(mx, my, x2, y2, x1, y2, t) ||
+          pointNearLine(mx, my, x1, y2, x1, y1, t)) return i;
+    } else if (a.type === 'highlight' || a.type === 'blur') {
+      // Hit test the filled area
+      const x = Math.min(a.startX, a.endX), y = Math.min(a.startY, a.endY);
+      const w = Math.abs(a.endX - a.startX), h = Math.abs(a.endY - a.startY);
+      if (mx >= x && mx <= x + w && my >= y && my <= y + h) return i;
     }
   }
   return -1;
@@ -233,7 +278,7 @@ drawCanvas.addEventListener('mousedown', (e) => {
     return;
   }
 
-  // Any tool — try to grab existing text annotations first
+  // Any tool — try to grab existing annotations first
   if (isInsideSelection(mx, my)) {
     const hit = hitTestAnnotation(mx, my);
     if (hit >= 0) {

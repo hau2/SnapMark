@@ -20,6 +20,7 @@ let mainWindow = null;
 let selectorWindow = null;
 let recorderWindow = null;
 let recordingToolbarWindow = null;
+let recordingHighlightWindow = null;
 let tray = null;
 let settings = null;
 let isCapturing = false;
@@ -37,7 +38,7 @@ function loadSettings() {
     hotkeys: {
       captureRegion: isMac ? 'Command+Shift+4' : 'Alt+S',
       captureFullscreen: isMac ? 'Command+Shift+3' : 'Alt+Shift+S',
-      recordRegion: isMac ? 'Command+Shift+5' : 'Alt+R',
+      recordRegion: isMac ? 'Command+G' : 'Alt+G',
     },
     saveDirectory: path.join(app.getPath('desktop')),
     copyToClipboardAfterCapture: true,
@@ -259,6 +260,11 @@ async function startRecording(mode) {
     isFullscreen = false;
   }
 
+  // Show highlight border around recording area
+  if (!isFullscreen && region) {
+    openRecordingHighlight(region, primaryDisplay.bounds);
+  }
+
   // Open hidden recorder window
   openRecorderWindow({ sourceId, region, scaleFactor, screenW: width, screenH: height, isFullscreen });
   openRecordingToolbar();
@@ -308,9 +314,50 @@ function stopRecording() {
   }
 }
 
+function openRecordingHighlight(region, displayBounds) {
+  const pad = 3; // border thickness
+  const x = displayBounds.x + region.x - pad;
+  const y = displayBounds.y + region.y - pad;
+  const w = region.w + pad * 2;
+  const h = region.h + pad * 2;
+
+  recordingHighlightWindow = new BrowserWindow({
+    x: Math.round(x), y: Math.round(y),
+    width: Math.round(w), height: Math.round(h),
+    frame: false, transparent: true, alwaysOnTop: true,
+    skipTaskbar: true, resizable: false, movable: false,
+    focusable: false, hasShadow: false,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+
+  // Ignore mouse events so user can interact with apps underneath
+  recordingHighlightWindow.setIgnoreMouseEvents(true);
+
+  recordingHighlightWindow.loadURL(`data:text/html,
+    <html><body style="margin:0;background:transparent;overflow:hidden;">
+      <div style="
+        width:${Math.round(w)}px;height:${Math.round(h)}px;
+        border:${pad}px solid rgba(230,57,70,0.8);
+        border-radius:4px;
+        box-sizing:border-box;
+        animation:pulse 2s infinite;
+      "></div>
+      <style>
+        @keyframes pulse {
+          0%,100%{border-color:rgba(230,57,70,0.8)}
+          50%{border-color:rgba(230,57,70,0.3)}
+        }
+      </style>
+    </body></html>
+  `);
+
+  recordingHighlightWindow.on('closed', () => { recordingHighlightWindow = null; });
+}
+
 function closeRecordingWindows() {
   if (recorderWindow) { recorderWindow.close(); recorderWindow = null; }
   if (recordingToolbarWindow) { recordingToolbarWindow.close(); recordingToolbarWindow = null; }
+  if (recordingHighlightWindow) { recordingHighlightWindow.close(); recordingHighlightWindow = null; }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

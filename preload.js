@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('snapmark', {
   copyScreenshotToClipboard: (filePath) => ipcRenderer.invoke('copy-screenshot-to-clipboard', filePath),
   saveScreenshotAs: (filePath) => ipcRenderer.invoke('save-screenshot-as', filePath),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  getScreenshotsDir: () => ipcRenderer.invoke('get-screenshots-dir'),
 
   // Events from main
   onInitSelector: (callback) => {

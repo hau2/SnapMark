@@ -21,6 +21,13 @@ async function initSettings() {
   document.querySelectorAll('.hotkey-input').forEach((el) => {
     el.addEventListener('click', () => startListening(el, settings));
   });
+
+  // Storage path
+  const dir = await window.snapmark.getScreenshotsDir();
+  document.getElementById('storage-path').textContent = dir;
+  document.getElementById('open-storage-btn').addEventListener('click', () => {
+    window.snapmark.openScreenshotFolder();
+  });
 }
 
 function startListening(el, settings) {

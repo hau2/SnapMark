@@ -459,6 +459,8 @@ function setupIPC() {
     }
   });
 
+  ipcMain.handle('get-screenshots-dir', () => screenshotsDir);
+
   ipcMain.handle('open-external', (_e, url) => {
     if (url.startsWith('https://') || url.startsWith('mailto:')) {
       shell.openExternal(url);

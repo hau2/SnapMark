@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      background: transparent;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, sans-serif;
+      user-select: none;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(15, 15, 28, 0.92);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 14px;
+      padding: 8px 16px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+      -webkit-app-region: drag;
+    }
+    .rec-dot {
+      width: 10px; height: 10px;
+      background: #e63946;
+      border-radius: 50%;
+      animation: pulse-dot 1s infinite;
+    }
+    .rec-dot.paused { animation: none; background: #ffbe0b; }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .timer {
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      min-width: 52px;
+    }
+    .sep {
+      width: 1px; height: 20px;
+      background: rgba(255,255,255,0.12);
+    }
+    .btn {
+      -webkit-app-region: no-drag;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px; height: 30px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.12s;
+      background: transparent;
+      color: rgba(255,255,255,0.7);
+    }
+    .btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+    .btn svg { width: 16px; height: 16px; }
+    .btn-stop {
+      background: #e63946;
+      color: #fff;
+      width: auto;
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      gap: 6px;
+    }
+    .btn-stop:hover { background: #ff4d5a; }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="rec-dot" id="rec-dot"></div>
+    <div class="timer" id="timer">00:00</div>
+    <div class="sep"></div>
+    <button class="btn" id="pause-btn" title="Pause">
+      <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+    </button>
+    <button class="btn btn-stop" id="stop-btn" title="Stop">
+      <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+      Stop
+    </button>
+  </div>
+  <script>
+    let paused = false;
+
+    document.getElementById('pause-btn').addEventListener('click', () => {
+      paused = !paused;
+      const btn = document.getElementById('pause-btn');
+      const dot = document.getElementById('rec-dot');
+      if (paused) {
+        window.snapmark.sendRecordingCommand('pause');
+        dot.classList.add('paused');
+        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>';
+        btn.title = 'Resume';
+      } else {
+        window.snapmark.sendRecordingCommand('resume');
+        dot.classList.remove('paused');
+        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+        btn.title = 'Pause';
+      }
+    });
+
+    document.getElementById('stop-btn').addEventListener('click', () => {
+      window.snapmark.sendRecordingCommand('stop');
+    });
+
+    window.snapmark.onRecordingTimeUpdate((ms) => {
+      const sec = Math.floor(ms / 1000);
+      const m = String(Math.floor(sec / 60)).padStart(2, '0');
+      const s = String(sec % 60).padStart(2, '0');
+      document.getElementById('timer').textContent = `${m}:${s}`;
+    });
+  </script>
+</body>
+</html>

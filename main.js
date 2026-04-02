@@ -18,9 +18,13 @@ const fs = require('fs');
 
 let mainWindow = null;
 let selectorWindow = null;
+let recorderWindow = null;
+let recordingToolbarWindow = null;
 let tray = null;
 let settings = null;
 let isCapturing = false;
+let isRecording = false;
+let pendingRecordRegion = null; // resolve function for region-selected
 
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
 const screenshotsDir = path.join(app.getPath('userData'), 'screenshots');
@@ -33,6 +37,7 @@ function loadSettings() {
     hotkeys: {
       captureRegion: isMac ? 'Command+Shift+4' : 'Alt+S',
       captureFullscreen: isMac ? 'Command+Shift+3' : 'Alt+Shift+S',
+      recordRegion: isMac ? 'Command+Shift+5' : 'Alt+R',
     },
     saveDirectory: path.join(app.getPath('desktop')),
     copyToClipboardAfterCapture: true,
@@ -58,14 +63,14 @@ function applyOpenAtLogin() {
   try {
     app.setLoginItemSettings({
       openAtLogin: settings.openAtLogin !== false,
-      openAsHidden: true, // Start minimized to tray
+      openAsHidden: true,
     });
   } catch (e) {
     console.error('Failed to set login item:', e.message);
   }
 }
 
-// ── Screenshots directory ──────────────────────────────────────────────────
+// ── Media directory ────────────────────────────────────────────────────────
 
 function ensureScreenshotsDir() {
   if (!fs.existsSync(screenshotsDir)) {
@@ -73,15 +78,20 @@ function ensureScreenshotsDir() {
   }
 }
 
-function getRecentScreenshots() {
+function getRecentMedia() {
   ensureScreenshotsDir();
   try {
     return fs
       .readdirSync(screenshotsDir)
-      .filter((f) => f.endsWith('.png'))
+      .filter((f) => f.endsWith('.png') || f.endsWith('.webm'))
       .map((f) => {
         const full = path.join(screenshotsDir, f);
-        return { name: f, path: full, mtime: fs.statSync(full).mtimeMs };
+        return {
+          name: f,
+          path: full,
+          mtime: fs.statSync(full).mtimeMs,
+          type: f.endsWith('.webm') ? 'video' : 'image',
+        };
       })
       .sort((a, b) => b.mtime - a.mtime)
       .slice(0, 50);
@@ -94,36 +104,30 @@ function getRecentScreenshots() {
 
 function registerHotkeys() {
   globalShortcut.unregisterAll();
-  try {
-    globalShortcut.register(settings.hotkeys.captureRegion, () => startCapture('region'));
-  } catch (e) {
-    console.error('Failed to register captureRegion hotkey:', e.message);
-  }
-  try {
-    globalShortcut.register(settings.hotkeys.captureFullscreen, () => startCapture('full'));
-  } catch (e) {
-    console.error('Failed to register captureFullscreen hotkey:', e.message);
+  const reg = (key, fn) => {
+    try { globalShortcut.register(key, fn); }
+    catch (e) { console.error(`Failed to register ${key}:`, e.message); }
+  };
+  reg(settings.hotkeys.captureRegion, () => startCapture('region'));
+  reg(settings.hotkeys.captureFullscreen, () => startCapture('full'));
+  if (settings.hotkeys.recordRegion) {
+    reg(settings.hotkeys.recordRegion, () => startRecording('region'));
   }
   if (tray) {
     tray.setToolTip(
-      `SnapMark\nRegion: ${settings.hotkeys.captureRegion}\nFullscreen: ${settings.hotkeys.captureFullscreen}`
+      `SnapMark\nCapture: ${settings.hotkeys.captureRegion}\nRecord: ${settings.hotkeys.recordRegion || 'N/A'}`
     );
   }
 }
 
-// ── Capture ────────────────────────────────────────────────────────────────
+// ── Capture (screenshot) ──────────────────────────────────────────────────
 
 async function startCapture(mode) {
-  // Guard against double-trigger from fast hotkey presses
-  if (isCapturing || selectorWindow) return;
+  if (isCapturing || selectorWindow || isRecording) return;
   isCapturing = true;
 
   try {
-    if (mainWindow && mainWindow.isVisible()) {
-      mainWindow.hide();
-    }
-
-    // Wait for window to fully hide — critical on macOS
+    if (mainWindow && mainWindow.isVisible()) mainWindow.hide();
     await new Promise((r) => setTimeout(r, 400));
 
     const primaryDisplay = screen.getPrimaryDisplay();
@@ -141,15 +145,10 @@ async function startCapture(mode) {
       });
     } catch (e) {
       console.error('desktopCapturer error:', e);
-      showMainWindow();
       return;
     }
 
-    if (!sources || sources.length === 0) {
-      console.error('No capture sources found');
-      showMainWindow();
-      return;
-    }
+    if (!sources || sources.length === 0) return;
 
     const source = sources[0];
     const dataURL = source.thumbnail.toDataURL();
@@ -158,55 +157,33 @@ async function startCapture(mode) {
       const buffer = source.thumbnail.toPNG();
       const filename = `screenshot-${Date.now()}.png`;
       ensureScreenshotsDir();
-      const filePath = path.join(screenshotsDir, filename);
-      fs.writeFileSync(filePath, buffer);
-
-      if (settings.copyToClipboardAfterCapture) {
-        clipboard.writeImage(source.thumbnail);
-      }
-
-      showNotification('Screenshot captured', 'Fullscreen screenshot saved and copied to clipboard.');
-      showMainWindow();
+      fs.writeFileSync(path.join(screenshotsDir, filename), buffer);
+      if (settings.copyToClipboardAfterCapture) clipboard.writeImage(source.thumbnail);
+      showNotification('Screenshot captured', 'Fullscreen screenshot saved.');
       if (mainWindow) mainWindow.webContents.send('screenshots-updated');
       return;
     }
 
-    openSelector(dataURL, width, height, scaleFactor);
+    openSelector(dataURL, width, height, scaleFactor, 'capture');
   } finally {
-    // For region mode, reset after selector closes; for full mode, reset now
-    if (mode === 'full') {
-      isCapturing = false;
-    }
+    if (mode === 'full') isCapturing = false;
   }
 }
 
-function openSelector(dataURL, screenW, screenH, scaleFactor) {
-  if (selectorWindow) {
-    selectorWindow.close();
-    selectorWindow = null;
-  }
+function openSelector(dataURL, screenW, screenH, scaleFactor, selectorMode) {
+  if (selectorWindow) { selectorWindow.close(); selectorWindow = null; }
 
   const primaryDisplay = screen.getPrimaryDisplay();
   const { x, y } = primaryDisplay.bounds;
 
   selectorWindow = new BrowserWindow({
-    x,
-    y,
-    width: screenW,
-    height: screenH,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    movable: false,
-    fullscreen: true,
-    hasShadow: false,
-    enableLargerThanScreen: true,
+    x, y, width: screenW, height: screenH,
+    frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true,
+    resizable: false, movable: false, fullscreen: true,
+    hasShadow: false, enableLargerThanScreen: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
+      contextIsolation: true, nodeIntegration: false,
     },
   });
 
@@ -214,33 +191,136 @@ function openSelector(dataURL, screenW, screenH, scaleFactor) {
 
   selectorWindow.webContents.once('did-finish-load', () => {
     selectorWindow.webContents.send('init-selector', {
-      dataURL,
-      screenW,
-      screenH,
-      scaleFactor,
+      dataURL, screenW, screenH, scaleFactor,
+      mode: selectorMode || 'capture',
     });
   });
 
   selectorWindow.on('closed', () => {
     selectorWindow = null;
     isCapturing = false;
+    // If recording was waiting for region and selector closed without providing one
+    if (pendingRecordRegion) {
+      pendingRecordRegion(null);
+      pendingRecordRegion = null;
+    }
   });
+}
+
+// ── Recording ─────────────────────────────────────────────────────────────
+
+async function startRecording(mode) {
+  if (isCapturing || isRecording || selectorWindow) return;
+  isRecording = true;
+
+  if (mainWindow && mainWindow.isVisible()) mainWindow.hide();
+  await new Promise((r) => setTimeout(r, 400));
+
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.size;
+  const scaleFactor = primaryDisplay.scaleFactor || 1;
+
+  // Get source ID for the screen
+  let sources;
+  try {
+    sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } });
+  } catch (e) {
+    console.error('desktopCapturer error:', e);
+    isRecording = false;
+    return;
+  }
+  if (!sources || sources.length === 0) { isRecording = false; return; }
+  const sourceId = sources[0].id;
+
+  let region = null;
+  let isFullscreen = true;
+
+  if (mode === 'region') {
+    // Take a screenshot for the selector background
+    let bgSources;
+    try {
+      bgSources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: Math.round(width * scaleFactor), height: Math.round(height * scaleFactor) },
+      });
+    } catch (_) { isRecording = false; return; }
+
+    const dataURL = bgSources[0].thumbnail.toDataURL();
+    openSelector(dataURL, width, height, scaleFactor, 'record-select');
+
+    // Wait for region selection
+    region = await new Promise((resolve) => { pendingRecordRegion = resolve; });
+    if (!region) { isRecording = false; return; }
+
+    // Close selector
+    closeSelectorWindow();
+    await new Promise((r) => setTimeout(r, 200));
+
+    isFullscreen = false;
+  }
+
+  // Open hidden recorder window
+  openRecorderWindow({ sourceId, region, scaleFactor, screenW: width, screenH: height, isFullscreen });
+  openRecordingToolbar();
+}
+
+function openRecorderWindow(config) {
+  recorderWindow = new BrowserWindow({
+    show: false, width: 1, height: 1,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true, nodeIntegration: false,
+    },
+  });
+
+  recorderWindow.loadFile(path.join(__dirname, 'src', 'recorder.html'));
+
+  recorderWindow.webContents.once('did-finish-load', () => {
+    recorderWindow.webContents.send('init-recorder', config);
+  });
+
+  recorderWindow.on('closed', () => { recorderWindow = null; });
+}
+
+function openRecordingToolbar() {
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width } = primaryDisplay.size;
+
+  recordingToolbarWindow = new BrowserWindow({
+    width: 280, height: 52,
+    x: Math.round((width - 280) / 2), y: 20,
+    frame: false, transparent: true, alwaysOnTop: true,
+    skipTaskbar: true, resizable: false, focusable: false,
+    hasShadow: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true, nodeIntegration: false,
+    },
+  });
+
+  recordingToolbarWindow.loadFile(path.join(__dirname, 'src', 'recording-toolbar.html'));
+  recordingToolbarWindow.on('closed', () => { recordingToolbarWindow = null; });
+}
+
+function stopRecording() {
+  if (recorderWindow) {
+    recorderWindow.webContents.send('recording-command', 'stop');
+  }
+}
+
+function closeRecordingWindows() {
+  if (recorderWindow) { recorderWindow.close(); recorderWindow = null; }
+  if (recordingToolbarWindow) { recordingToolbarWindow.close(); recordingToolbarWindow = null; }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function showMainWindow() {
-  if (mainWindow) {
-    mainWindow.show();
-    mainWindow.focus();
-  }
+  if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
 }
 
 function closeSelectorWindow() {
-  if (selectorWindow) {
-    selectorWindow.close();
-    selectorWindow = null;
-  }
+  if (selectorWindow) { selectorWindow.close(); selectorWindow = null; }
 }
 
 function showNotification(title, body) {
@@ -265,6 +345,11 @@ function createTray() {
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Capture Region', click: () => startCapture('region') },
     { label: 'Capture Fullscreen', click: () => startCapture('full') },
+    { type: 'separator' },
+    { label: 'Record Region', click: () => startRecording('region') },
+    { label: 'Record Fullscreen', click: () => startRecording('full') },
+    { type: 'separator' },
+    { label: 'Stop Recording', click: () => stopRecording(), enabled: false, id: 'stop-rec' },
     { type: 'separator' },
     {
       label: 'Settings',
@@ -293,32 +378,19 @@ function createMainWindow() {
   const isMac = process.platform === 'darwin';
 
   mainWindow = new BrowserWindow({
-    width: 900,
-    height: 640,
-    minWidth: 600,
-    minHeight: 400,
+    width: 900, height: 640, minWidth: 600, minHeight: 400,
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
-    frame: !isMac,
-    backgroundColor: '#0d0d1a',
-    show: false,
+    frame: !isMac, backgroundColor: '#0d0d1a', show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
+      contextIsolation: true, nodeIntegration: false,
     },
   });
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
-
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-  });
-
+  mainWindow.once('ready-to-show', () => { mainWindow.show(); });
   mainWindow.on('close', (e) => {
-    if (!app.isQuitting) {
-      e.preventDefault();
-      mainWindow.hide();
-    }
+    if (!app.isQuitting) { e.preventDefault(); mainWindow.hide(); }
   });
 }
 
@@ -326,158 +398,146 @@ function createMainWindow() {
 
 function setupIPC() {
   ipcMain.handle('get-settings', () => settings);
-
-  ipcMain.handle('save-settings', (_e, newSettings) => {
-    saveSettings(newSettings);
-    return true;
-  });
-
-  ipcMain.handle('get-screenshots', () => getRecentScreenshots());
+  ipcMain.handle('save-settings', (_e, newSettings) => { saveSettings(newSettings); return true; });
+  ipcMain.handle('get-screenshots', () => getRecentMedia());
 
   ipcMain.handle('get-screenshot-data', (_e, filePath) => {
     try {
+      if (filePath.endsWith('.webm')) {
+        // Return file:// URL for video
+        return `file://${filePath}`;
+      }
       const buffer = fs.readFileSync(filePath);
       return `data:image/png;base64,${buffer.toString('base64')}`;
-    } catch (_) {
-      return null;
-    }
+    } catch (_) { return null; }
   });
 
   ipcMain.handle('capture-region', () => startCapture('region'));
   ipcMain.handle('capture-full', () => startCapture('full'));
 
-  // Save: close selector FIRST, then show dialog from main window
+  // Save image
   ipcMain.handle('save-image', async (_e, dataURL) => {
     const buffer = Buffer.from(dataURL.replace(/^data:image\/png;base64,/, ''), 'base64');
     const filename = `screenshot-${Date.now()}.png`;
-
-    // Always save to internal screenshots directory
     ensureScreenshotsDir();
-    const internalPath = path.join(screenshotsDir, filename);
-    fs.writeFileSync(internalPath, buffer);
-
+    fs.writeFileSync(path.join(screenshotsDir, filename), buffer);
     closeSelectorWindow();
-
-    // Small delay for window to close
     await new Promise((r) => setTimeout(r, 150));
-
-    // Show save dialog — use mainWindow as parent if visible, otherwise standalone
     const dialogParent = mainWindow && mainWindow.isVisible() ? mainWindow : undefined;
     const { filePath } = await dialog.showSaveDialog(dialogParent, {
       defaultPath: path.join(settings.saveDirectory, filename),
       filters: [{ name: 'PNG Image', extensions: ['png'] }],
     });
-
-    if (filePath) {
-      fs.writeFileSync(filePath, buffer);
-    }
-
+    if (filePath) fs.writeFileSync(filePath, buffer);
     showNotification('Screenshot saved', filePath ? `Saved to ${path.basename(filePath)}` : 'Saved to library.');
-    // Update gallery in background — don't show main window
     if (mainWindow) mainWindow.webContents.send('screenshots-updated');
     return true;
   });
 
-  // Copy: write to clipboard, close selector, show feedback via notification
   ipcMain.handle('copy-clipboard', (_e, dataURL) => {
     const buffer = Buffer.from(dataURL.replace(/^data:image\/png;base64,/, ''), 'base64');
-    const img = nativeImage.createFromBuffer(buffer);
-    clipboard.writeImage(img);
-
-    // Also save to internal library
+    clipboard.writeImage(nativeImage.createFromBuffer(buffer));
     const filename = `screenshot-${Date.now()}.png`;
     ensureScreenshotsDir();
     fs.writeFileSync(path.join(screenshotsDir, filename), buffer);
-
     return true;
   });
 
-  // Copy + close selector flow (renderer calls this after copy-clipboard)
   ipcMain.handle('copy-and-close', async (_e, dataURL) => {
     const buffer = Buffer.from(dataURL.replace(/^data:image\/png;base64,/, ''), 'base64');
-    const img = nativeImage.createFromBuffer(buffer);
-    clipboard.writeImage(img);
-
-    // Also save to internal library
+    clipboard.writeImage(nativeImage.createFromBuffer(buffer));
     const filename = `screenshot-${Date.now()}.png`;
     ensureScreenshotsDir();
     fs.writeFileSync(path.join(screenshotsDir, filename), buffer);
-
     closeSelectorWindow();
     showNotification('Copied to clipboard', 'Screenshot copied and saved to library.');
     if (mainWindow) mainWindow.webContents.send('screenshots-updated');
     return true;
   });
 
-  // Save without dialog (quick save to library only)
   ipcMain.handle('quick-save', async (_e, dataURL) => {
     const buffer = Buffer.from(dataURL.replace(/^data:image\/png;base64,/, ''), 'base64');
     const filename = `screenshot-${Date.now()}.png`;
     ensureScreenshotsDir();
-    const internalPath = path.join(screenshotsDir, filename);
-    fs.writeFileSync(internalPath, buffer);
-
+    fs.writeFileSync(path.join(screenshotsDir, filename), buffer);
     closeSelectorWindow();
     showNotification('Screenshot saved', 'Saved to library.');
     if (mainWindow) mainWindow.webContents.send('screenshots-updated');
     return true;
   });
 
-  ipcMain.handle('close-selector', () => {
-    closeSelectorWindow();
-    // Don't show main window on cancel/Esc — user just wants to go back to what they were doing
+  ipcMain.handle('close-selector', () => { closeSelectorWindow(); });
+
+  ipcMain.handle('open-screenshot-folder', () => { ensureScreenshotsDir(); shell.openPath(screenshotsDir); });
+  ipcMain.handle('delete-screenshot', (_e, fp) => { try { fs.unlinkSync(fp); return true; } catch (_) { return false; } });
+
+  ipcMain.handle('copy-screenshot-to-clipboard', (_e, fp) => {
+    try { clipboard.writeImage(nativeImage.createFromPath(fp)); return true; } catch (_) { return false; }
   });
 
-  ipcMain.handle('open-screenshot-folder', () => {
-    ensureScreenshotsDir();
-    shell.openPath(screenshotsDir);
-  });
-
-  ipcMain.handle('delete-screenshot', (_e, filePath) => {
-    try {
-      fs.unlinkSync(filePath);
-      return true;
-    } catch (_) {
-      return false;
-    }
-  });
-
-  // Copy a recent screenshot from gallery to clipboard
-  ipcMain.handle('copy-screenshot-to-clipboard', (_e, filePath) => {
-    try {
-      const img = nativeImage.createFromPath(filePath);
-      clipboard.writeImage(img);
-      return true;
-    } catch (_) {
-      return false;
-    }
-  });
-
-  // Save a recent screenshot to a user-chosen location
   ipcMain.handle('save-screenshot-as', async (_e, filePath) => {
     try {
       const buffer = fs.readFileSync(filePath);
-      const ext = path.extname(filePath);
+      const isVideo = filePath.endsWith('.webm');
       const { filePath: dest } = await dialog.showSaveDialog(mainWindow, {
         defaultPath: path.join(settings.saveDirectory, path.basename(filePath)),
-        filters: [{ name: 'PNG Image', extensions: ['png'] }],
+        filters: isVideo
+          ? [{ name: 'WebM Video', extensions: ['webm'] }]
+          : [{ name: 'PNG Image', extensions: ['png'] }],
       });
-      if (dest) {
-        fs.writeFileSync(dest, buffer);
-        return true;
-      }
+      if (dest) { fs.writeFileSync(dest, buffer); return true; }
       return false;
-    } catch (_) {
-      return false;
-    }
+    } catch (_) { return false; }
   });
 
   ipcMain.handle('get-screenshots-dir', () => screenshotsDir);
-
   ipcMain.handle('open-external', (_e, url) => {
-    if (url.startsWith('https://') || url.startsWith('mailto:')) {
-      shell.openExternal(url);
+    if (url.startsWith('https://') || url.startsWith('mailto:')) shell.openExternal(url);
+  });
+
+  // ── Recording IPC ──────────────────────────────────────────────────────
+
+  ipcMain.handle('start-recording', (_e, mode) => startRecording(mode));
+  ipcMain.handle('stop-recording', () => stopRecording());
+
+  ipcMain.handle('region-selected', (_e, region) => {
+    if (pendingRecordRegion) {
+      pendingRecordRegion(region);
+      pendingRecordRegion = null;
     }
+  });
+
+  ipcMain.handle('send-recording-command', (_e, cmd) => {
+    if (recorderWindow) {
+      recorderWindow.webContents.send('recording-command', cmd);
+    }
+    if (cmd === 'stop') {
+      // Will be cleaned up when recording-complete fires
+    }
+  });
+
+  ipcMain.handle('recording-time-update', (_e, ms) => {
+    if (recordingToolbarWindow) {
+      recordingToolbarWindow.webContents.send('recording-time-update', ms);
+    }
+  });
+
+  ipcMain.handle('recording-complete', (_e, data) => {
+    closeRecordingWindows();
+    isRecording = false;
+
+    if (!data) {
+      showNotification('Recording failed', 'Could not save recording.');
+      return;
+    }
+
+    const buffer = Buffer.from(data);
+    const filename = `recording-${Date.now()}.webm`;
+    ensureScreenshotsDir();
+    fs.writeFileSync(path.join(screenshotsDir, filename), buffer);
+
+    showNotification('Recording saved', `${filename} saved to library.`);
+    if (mainWindow) mainWindow.webContents.send('screenshots-updated');
   });
 }
 
@@ -486,10 +546,8 @@ function setupIPC() {
 const gotLock = app.requestSingleInstanceLock();
 
 if (!gotLock) {
-  // Another instance is already running — quit this one
   app.quit();
 } else {
-  // When a second instance is launched, focus the existing window
   app.on('second-instance', () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
@@ -497,8 +555,6 @@ if (!gotLock) {
       mainWindow.focus();
     }
   });
-
-  // ── App lifecycle ────────────────────────────────────────────────────────
 
   app.whenReady().then(() => {
     settings = loadSettings();
@@ -508,20 +564,10 @@ if (!gotLock) {
     applyOpenAtLogin();
     setupIPC();
 
-    app.on('activate', () => {
-      if (mainWindow) mainWindow.show();
-    });
+    app.on('activate', () => { if (mainWindow) mainWindow.show(); });
   });
 
-  app.on('window-all-closed', () => {
-    // Keep running in tray
-  });
-
-  app.on('before-quit', () => {
-    app.isQuitting = true;
-  });
-
-  app.on('will-quit', () => {
-    globalShortcut.unregisterAll();
-  });
+  app.on('window-all-closed', () => { /* keep running in tray */ });
+  app.on('before-quit', () => { app.isQuitting = true; });
+  app.on('will-quit', () => { globalShortcut.unregisterAll(); });
 }

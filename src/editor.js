@@ -16,6 +16,7 @@ let resizeOrigin = null;
 
 // Drawing
 let mode = 'select'; // 'select' | 'annotate'
+let selectorMode = 'capture'; // 'capture' | 'record-select'
 let tool = 'rect';
 let color = '#e63946';
 let strokeWidth = 3;
@@ -62,6 +63,10 @@ window.snapmark.onInitSelector((data) => {
   screenW = data.screenW;
   screenH = data.screenH;
   scaleFactor = data.scaleFactor;
+  selectorMode = data.mode || 'capture';
+  if (selectorMode === 'record-select') {
+    hint.textContent = 'Click and drag to select recording area';
+  }
 
   [bgCanvas, overlay, drawCanvas].forEach((c) => {
     c.width = screenW * scaleFactor;
@@ -501,6 +506,15 @@ function normalizeRect(a, b) {
 // ── Annotate mode ───────────────────────────────────────────────────────────
 
 function enterAnnotateMode() {
+  // Record-select mode: just return the region and close
+  if (selectorMode === 'record-select') {
+    window.snapmark.regionSelected({
+      x: selRect.x, y: selRect.y,
+      w: selRect.w, h: selRect.h,
+    });
+    return;
+  }
+
   mode = 'annotate';
   drawCanvas.style.cursor = 'crosshair';
   toolbar.classList.add('visible');

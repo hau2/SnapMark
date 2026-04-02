@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('snapmark', {
 
   // Selector
   closeSelector: () => ipcRenderer.invoke('close-selector'),
+  regionSelected: (region) => ipcRenderer.invoke('region-selected', region),
 
   // Image operations — from selector
   copyAndClose: (dataURL) => ipcRenderer.invoke('copy-and-close', dataURL),
@@ -28,6 +29,13 @@ contextBridge.exposeInMainWorld('snapmark', {
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   getScreenshotsDir: () => ipcRenderer.invoke('get-screenshots-dir'),
 
+  // Recording
+  startRecording: (mode) => ipcRenderer.invoke('start-recording', mode),
+  stopRecording: () => ipcRenderer.invoke('stop-recording'),
+  sendRecordingCommand: (cmd) => ipcRenderer.invoke('send-recording-command', cmd),
+  recordingComplete: (buffer) => ipcRenderer.invoke('recording-complete', buffer),
+  recordingTimeUpdate: (ms) => ipcRenderer.invoke('recording-time-update', ms),
+
   // Events from main
   onInitSelector: (callback) => {
     ipcRenderer.on('init-selector', (_e, data) => callback(data));
@@ -37,5 +45,14 @@ contextBridge.exposeInMainWorld('snapmark', {
   },
   onOpenSettings: (callback) => {
     ipcRenderer.on('open-settings', () => callback());
+  },
+  onInitRecorder: (callback) => {
+    ipcRenderer.on('init-recorder', (_e, data) => callback(data));
+  },
+  onRecordingCommand: (callback) => {
+    ipcRenderer.on('recording-command', (_e, cmd) => callback(cmd));
+  },
+  onRecordingTimeUpdate: (callback) => {
+    ipcRenderer.on('recording-time-update', (_e, ms) => callback(ms));
   },
 });

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; media-src 'self' file: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'" />
   <title>SnapMark</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -99,6 +99,29 @@
       border: 1px solid var(--border);
     }
     .btn-icon:hover { color: var(--text); background: var(--border); }
+    .btn-record {
+      background: rgba(230,57,70,0.15);
+      color: var(--accent);
+      padding: 7px 14px;
+      border: 1px solid rgba(230,57,70,0.3);
+    }
+    .btn-record:hover { background: rgba(230,57,70,0.25); }
+
+    /* Video badge on thumbnails */
+    .video-badge {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .video-badge svg { width: 10px; height: 10px; }
     .btn-ghost {
       background: none;
       color: var(--text-dim);
@@ -438,7 +461,11 @@
       </button>
       <button class="btn btn-secondary" onclick="captureFullscreen()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        Fullscreen
+        Full
+      </button>
+      <button class="btn btn-record" onclick="recordRegion()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>
+        Record
       </button>
       <button class="btn btn-secondary" onclick="showSettings()" title="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -486,6 +513,10 @@
         <div class="setting-row">
           <label>Capture Fullscreen</label>
           <div class="hotkey-input" id="hotkey-fullscreen" tabindex="0" data-key="captureFullscreen"></div>
+        </div>
+        <div class="setting-row">
+          <label>Record Region</label>
+          <div class="hotkey-input" id="hotkey-record" tabindex="0" data-key="recordRegion"></div>
         </div>
       </div>
 
@@ -548,6 +579,7 @@
     <div class="modal-content">
       <button class="modal-close" onclick="closePreview()">&times;</button>
       <img id="preview-img" src="" alt="Preview" />
+      <video id="preview-vid" src="" controls style="display:none; max-width:100%; max-height:78vh; border-radius:8px; box-shadow:0 8px 32px rgba(0,0,0,0.5);"></video>
     </div>
     <div class="modal-actions">
       <button class="btn btn-primary" id="modal-copy-btn">
@@ -608,12 +640,13 @@
 
       grid.style.display = 'grid';
       empty.style.display = 'none';
-      title.textContent = `Recent Screenshots (${screenshots.length})`;
+      title.textContent = `Recent Captures (${screenshots.length})`;
       grid.innerHTML = '';
 
       for (const s of screenshots) {
         const item = document.createElement('div');
         item.className = 'grid-item';
+        const isVideo = s.type === 'video';
 
         const date = new Date(s.mtime);
         const timeStr = date.toLocaleString(undefined, {
@@ -621,32 +654,50 @@
           hour: '2-digit', minute: '2-digit',
         });
 
-        item.innerHTML = `
-          <img class="thumb" src="" alt="${s.name}" />
-          <div class="hover-actions">
-            <button class="btn btn-primary copy-hover-btn">Copy</button>
-            <button class="btn btn-secondary save-hover-btn">Save As</button>
-          </div>
-          <div class="meta">
-            <span>${timeStr}</span>
-            <button class="delete-btn" title="Delete">&times;</button>
-          </div>
-        `;
+        if (isVideo) {
+          item.innerHTML = `
+            <video class="thumb" src="" muted preload="metadata"></video>
+            <div class="video-badge"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg> Video</div>
+            <div class="hover-actions">
+              <button class="btn btn-secondary save-hover-btn">Save As</button>
+            </div>
+            <div class="meta">
+              <span>${timeStr}</span>
+              <button class="delete-btn" title="Delete">&times;</button>
+            </div>
+          `;
+          const vid = item.querySelector('.thumb');
+          window.snapmark.getScreenshotData(s.path).then(data => {
+            if (data) { vid.src = data; vid.currentTime = 0.5; }
+          });
+        } else {
+          item.innerHTML = `
+            <img class="thumb" src="" alt="${s.name}" />
+            <div class="hover-actions">
+              <button class="btn btn-primary copy-hover-btn">Copy</button>
+              <button class="btn btn-secondary save-hover-btn">Save As</button>
+            </div>
+            <div class="meta">
+              <span>${timeStr}</span>
+              <button class="delete-btn" title="Delete">&times;</button>
+            </div>
+          `;
+          const img = item.querySelector('.thumb');
+          window.snapmark.getScreenshotData(s.path).then(data => {
+            if (data) img.src = data;
+          });
 
-        const img = item.querySelector('.thumb');
-        window.snapmark.getScreenshotData(s.path).then(data => {
-          if (data) img.src = data;
-        });
+          const copyBtn = item.querySelector('.copy-hover-btn');
+          if (copyBtn) {
+            copyBtn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              const ok = await window.snapmark.copyScreenshotToClipboard(s.path);
+              showToast(ok ? 'Copied to clipboard' : 'Failed to copy', ok ? 'success' : '');
+            });
+          }
+        }
 
-        // Click anywhere on the card opens preview
-        item.addEventListener('click', () => openPreview(s.path));
-
-        // Hover action buttons stop propagation so they don't trigger preview
-        item.querySelector('.copy-hover-btn').addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const ok = await window.snapmark.copyScreenshotToClipboard(s.path);
-          showToast(ok ? 'Copied to clipboard' : 'Failed to copy', ok ? 'success' : '');
-        });
+        item.addEventListener('click', () => openPreview(s.path, isVideo));
 
         item.querySelector('.save-hover-btn').addEventListener('click', async (e) => {
           e.stopPropagation();
@@ -657,24 +708,42 @@
           e.stopPropagation();
           await window.snapmark.deleteScreenshot(s.path);
           loadScreenshots();
-          showToast('Screenshot deleted', '');
+          showToast('Deleted', '');
         });
 
         grid.appendChild(item);
       }
     }
 
-    async function openPreview(filePath) {
+    async function openPreview(filePath, isVideo) {
       currentPreviewPath = filePath;
-      const data = await window.snapmark.getScreenshotData(filePath);
-      if (data) {
-        document.getElementById('preview-img').src = data;
-        document.getElementById('preview-modal').classList.add('active');
+      const previewImg = document.getElementById('preview-img');
+      const previewVid = document.getElementById('preview-vid');
+      const copyBtn = document.getElementById('modal-copy-btn');
+
+      if (isVideo) {
+        previewImg.style.display = 'none';
+        previewVid.style.display = 'block';
+        previewVid.src = `file://${filePath}`;
+        previewVid.play();
+        copyBtn.style.display = 'none';
+      } else {
+        previewVid.style.display = 'none';
+        previewVid.pause();
+        previewImg.style.display = 'block';
+        const data = await window.snapmark.getScreenshotData(filePath);
+        if (data) previewImg.src = data;
+        copyBtn.style.display = '';
+      }
+      document.getElementById('preview-modal').classList.add('active');
       }
     }
 
     function closePreview() {
       document.getElementById('preview-modal').classList.remove('active');
+      const vid = document.getElementById('preview-vid');
+      vid.pause();
+      vid.src = '';
       currentPreviewPath = null;
     }
 
@@ -713,6 +782,7 @@
     // ── Capture triggers ────────────────────────────────────────
     function captureRegion() { window.snapmark.captureRegion(); }
     function captureFullscreen() { window.snapmark.captureFullscreen(); }
+    function recordRegion() { window.snapmark.startRecording('region'); }
     function openFolder() { window.snapmark.openScreenshotFolder(); }
 
     // ── Events from main ────────────────────────────────────────

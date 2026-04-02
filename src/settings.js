@@ -8,6 +8,7 @@ async function initSettings() {
   // Populate hotkey displays
   document.getElementById('hotkey-region').textContent = formatHotkey(settings.hotkeys.captureRegion);
   document.getElementById('hotkey-fullscreen').textContent = formatHotkey(settings.hotkeys.captureFullscreen);
+  document.getElementById('hotkey-record').textContent = formatHotkey(settings.hotkeys.recordRegion);
 
   // Auto-copy toggle
   const autoCopy = document.getElementById('auto-copy');

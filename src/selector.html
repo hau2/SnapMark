@@ -269,29 +269,37 @@
   <div id="toolbar">
     <!-- Drawing tools -->
     <div class="tool-group">
+      <button class="tool-btn" data-tool="move">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3"/><path d="M9 5l3-3 3 3"/><path d="M15 19l-3 3-3-3"/><path d="M19 9l3 3-3 3"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
+        <span class="tooltip">Move (V)</span>
+      </button>
       <button class="tool-btn active" data-tool="rect">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
-        <span class="tooltip">Rectangle</span>
+        <span class="tooltip">Rectangle (R)</span>
       </button>
       <button class="tool-btn" data-tool="highlight">
         <svg viewBox="0 0 24 24" fill="currentColor" opacity="0.5"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
-        <span class="tooltip">Highlight</span>
+        <span class="tooltip">Highlight (H)</span>
+      </button>
+      <button class="tool-btn" data-tool="line">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+        <span class="tooltip">Line (L)</span>
       </button>
       <button class="tool-btn" data-tool="arrow">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="10,5 19,5 19,14"/></svg>
-        <span class="tooltip">Arrow</span>
+        <span class="tooltip">Arrow (A)</span>
       </button>
       <button class="tool-btn" data-tool="pen">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17c3-3 6-7 9-7s3 4 6 4 3-3 3-3"/></svg>
-        <span class="tooltip">Pen</span>
+        <span class="tooltip">Pen (P)</span>
       </button>
       <button class="tool-btn" data-tool="text">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4,7 4,4 20,4 20,7"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="8" y1="20" x2="16" y2="20"/></svg>
-        <span class="tooltip">Text</span>
+        <span class="tooltip">Text (T)</span>
       </button>
       <button class="tool-btn" data-tool="blur">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="7" x2="7" y2="7.01" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="7" x2="12" y2="7.01" stroke-width="3" stroke-linecap="round"/><line x1="17" y1="7" x2="17" y2="7.01" stroke-width="3" stroke-linecap="round"/><line x1="7" y1="12" x2="7" y2="12.01" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="12.01" stroke-width="3" stroke-linecap="round"/><line x1="17" y1="12" x2="17" y2="12.01" stroke-width="3" stroke-linecap="round"/><line x1="7" y1="17" x2="7" y2="17.01" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="17" x2="12" y2="17.01" stroke-width="3" stroke-linecap="round"/><line x1="17" y1="17" x2="17" y2="17.01" stroke-width="3" stroke-linecap="round"/></svg>
-        <span class="tooltip">Pixelate</span>
+        <span class="tooltip">Pixelate (B)</span>
       </button>
     </div>
 

@@ -7,12 +7,12 @@ let screenH = 0;
 // Selection
 let selecting = false;
 let selStart = { x: 0, y: 0 };
-let selRect = null; // { x, y, w, h } in CSS pixels
+let selRect = null;
 
 // Resize
 let resizing = false;
-let resizeHandle = null; // 'tl','t','tr','r','br','b','bl','l'
-let resizeOrigin = null; // fixed corner during resize
+let resizeHandle = null;
+let resizeOrigin = null;
 
 // Drawing
 let mode = 'select'; // 'select' | 'annotate'
@@ -27,6 +27,11 @@ let isDrawing = false;
 // Text
 let textActive = false;
 
+// Move tool state
+let selectedIdx = -1;       // index of selected annotation
+let isDraggingAnnotation = false;
+let dragOffset = { x: 0, y: 0 };
+
 // Canvases
 const bgCanvas = document.getElementById('bg-canvas');
 const bgCtx = bgCanvas.getContext('2d');
@@ -39,7 +44,7 @@ const toolbar = document.getElementById('toolbar');
 const textInput = document.getElementById('text-input');
 const hint = document.getElementById('hint');
 
-const HANDLE_SIZE = 8; // CSS pixels — hit target for resize handles
+const HANDLE_SIZE = 8;
 
 // ── Toast helper ────────────────────────────────────────────────────────────
 
@@ -83,21 +88,15 @@ function drawOverlay() {
 
   if (!selRect) return;
 
-  const rx = selRect.x * s;
-  const ry = selRect.y * s;
-  const rw = selRect.w * s;
-  const rh = selRect.h * s;
+  const rx = selRect.x * s, ry = selRect.y * s;
+  const rw = selRect.w * s, rh = selRect.h * s;
 
-  // Cutout
   ovCtx.clearRect(rx, ry, rw, rh);
-
-  // Border
   ovCtx.strokeStyle = '#e63946';
   ovCtx.lineWidth = 2 * s;
   ovCtx.setLineDash([]);
   ovCtx.strokeRect(rx, ry, rw, rh);
 
-  // Corner + edge handles
   const hs = 6 * s;
   ovCtx.fillStyle = '#fff';
   const handles = getHandlePositions();
@@ -107,20 +106,15 @@ function drawOverlay() {
   }
 }
 
-// ── Resize handle positions (CSS pixels) ────────────────────────────────────
+// ── Resize handles ──────────────────────────────────────────────────────────
 
 function getHandlePositions() {
   if (!selRect) return {};
   const { x, y, w, h } = selRect;
   return {
-    tl: { x, y },
-    t:  { x: x + w / 2, y },
-    tr: { x: x + w, y },
-    r:  { x: x + w, y: y + h / 2 },
-    br: { x: x + w, y: y + h },
-    b:  { x: x + w / 2, y: y + h },
-    bl: { x, y: y + h },
-    l:  { x, y: y + h / 2 },
+    tl: { x, y }, t: { x: x + w / 2, y }, tr: { x: x + w, y },
+    r: { x: x + w, y: y + h / 2 }, br: { x: x + w, y: y + h },
+    b: { x: x + w / 2, y: y + h }, bl: { x, y: y + h }, l: { x, y: y + h / 2 },
   };
 }
 
@@ -128,9 +122,7 @@ function hitTestHandle(mx, my) {
   const handles = getHandlePositions();
   for (const key in handles) {
     const h = handles[key];
-    if (Math.abs(mx - h.x) <= HANDLE_SIZE && Math.abs(my - h.y) <= HANDLE_SIZE) {
-      return key;
-    }
+    if (Math.abs(mx - h.x) <= HANDLE_SIZE && Math.abs(my - h.y) <= HANDLE_SIZE) return key;
   }
   return null;
 }
@@ -143,45 +135,27 @@ function handleCursor(handle) {
   return map[handle] || 'crosshair';
 }
 
-// When resizing, we need a fixed anchor point (the opposite corner/edge)
 function getResizeAnchor(handle) {
   const { x, y, w, h } = selRect;
   const map = {
-    tl: { x: x + w, y: y + h },
-    t:  { x: x,     y: y + h },
-    tr: { x,        y: y + h },
-    r:  { x,        y },
-    br: { x,        y },
-    b:  { x,        y },
-    bl: { x: x + w, y },
-    l:  { x: x + w, y },
+    tl: { x: x + w, y: y + h }, t: { x, y: y + h }, tr: { x, y: y + h },
+    r: { x, y }, br: { x, y }, b: { x, y }, bl: { x: x + w, y }, l: { x: x + w, y },
   };
   return map[handle];
 }
 
 function computeResizedRect(handle, anchor, mx, my) {
   let x1, y1, x2, y2;
-
   if (handle === 't' || handle === 'b') {
-    // Vertical only
-    x1 = selRect.x;
-    x2 = selRect.x + selRect.w;
-    y1 = Math.min(anchor.y, my);
-    y2 = Math.max(anchor.y, my);
+    x1 = selRect.x; x2 = selRect.x + selRect.w;
+    y1 = Math.min(anchor.y, my); y2 = Math.max(anchor.y, my);
   } else if (handle === 'l' || handle === 'r') {
-    // Horizontal only
-    y1 = selRect.y;
-    y2 = selRect.y + selRect.h;
-    x1 = Math.min(anchor.x, mx);
-    x2 = Math.max(anchor.x, mx);
+    y1 = selRect.y; y2 = selRect.y + selRect.h;
+    x1 = Math.min(anchor.x, mx); x2 = Math.max(anchor.x, mx);
   } else {
-    // Corner — free resize both axes
-    x1 = Math.min(anchor.x, mx);
-    y1 = Math.min(anchor.y, my);
-    x2 = Math.max(anchor.x, mx);
-    y2 = Math.max(anchor.y, my);
+    x1 = Math.min(anchor.x, mx); y1 = Math.min(anchor.y, my);
+    x2 = Math.max(anchor.x, mx); y2 = Math.max(anchor.y, my);
   }
-
   return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
 }
 
@@ -191,13 +165,57 @@ function isInsideSelection(mx, my) {
          my >= selRect.y && my <= selRect.y + selRect.h;
 }
 
+// ── Annotation hit testing ──────────────────────────────────────────────────
+
+function getTextBounds(a) {
+  const s = scaleFactor;
+  drawCtx.font = `bold ${a.fontSize * s}px system-ui, sans-serif`;
+  const lines = a.text.split('\n');
+  let maxW = 0;
+  for (const line of lines) {
+    const m = drawCtx.measureText(line);
+    if (m.width > maxW) maxW = m.width;
+  }
+  return {
+    x: a.x,
+    y: a.y,
+    w: maxW / s,
+    h: a.fontSize * 1.2 * lines.length,
+  };
+}
+
+function hitTestAnnotation(mx, my) {
+  // Search in reverse so topmost annotation is found first
+  for (let i = annotations.length - 1; i >= 0; i--) {
+    const a = annotations[i];
+    if (a.type === 'text') {
+      const b = getTextBounds(a);
+      if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) return i;
+    }
+  }
+  return -1;
+}
+
+function moveAnnotation(idx, dx, dy) {
+  const a = annotations[idx];
+  if (a.type === 'text') {
+    a.x += dx;
+    a.y += dy;
+  } else if (a.type === 'pen') {
+    a.startX += dx; a.startY += dy;
+    a.endX += dx; a.endY += dy;
+    for (const p of a.points) { p.x += dx; p.y += dy; }
+  } else {
+    a.startX += dx; a.startY += dy;
+    a.endX += dx; a.endY += dy;
+  }
+}
+
 // ── Mouse events ────────────────────────────────────────────────────────────
 
 drawCanvas.addEventListener('mousedown', (e) => {
   if (textActive) return;
-
-  const mx = e.clientX;
-  const my = e.clientY;
+  const mx = e.clientX, my = e.clientY;
 
   if (mode === 'select') {
     selecting = true;
@@ -206,8 +224,7 @@ drawCanvas.addEventListener('mousedown', (e) => {
     return;
   }
 
-  // Annotate mode
-  // Check resize handles first
+  // Annotate mode — check resize handles first
   const handle = hitTestHandle(mx, my);
   if (handle) {
     resizing = true;
@@ -215,6 +232,33 @@ drawCanvas.addEventListener('mousedown', (e) => {
     resizeOrigin = getResizeAnchor(handle);
     return;
   }
+
+  // Any tool — try to grab existing text annotations first
+  if (isInsideSelection(mx, my)) {
+    const hit = hitTestAnnotation(mx, my);
+    if (hit >= 0) {
+      selectedIdx = hit;
+      isDraggingAnnotation = true;
+      const a = annotations[hit];
+      if (a.type === 'text') {
+        dragOffset = { x: mx - a.x, y: my - a.y };
+      } else {
+        dragOffset = { x: mx - a.startX, y: my - a.startY };
+      }
+      redrawAnnotations();
+      return;
+    }
+  }
+
+  // Move tool on empty area — deselect
+  if (tool === 'move') {
+    selectedIdx = -1;
+    redrawAnnotations();
+    return;
+  }
+
+  // Text tool — don't start drawing (handled by click event)
+  if (tool === 'text') return;
 
   // Start drawing if inside selection
   if (isInsideSelection(mx, my)) {
@@ -224,15 +268,12 @@ drawCanvas.addEventListener('mousedown', (e) => {
 
 drawCanvas.addEventListener('mousemove', (e) => {
   if (textActive) return;
-
-  const mx = e.clientX;
-  const my = e.clientY;
+  const mx = e.clientX, my = e.clientY;
 
   if (mode === 'select' && selecting) {
     const rect = normalizeRect(selStart, { x: mx, y: my });
     selRect = rect;
     drawOverlay();
-
     dimLabel.style.display = 'block';
     dimLabel.style.left = rect.x + rect.w + 10 + 'px';
     dimLabel.style.top = rect.y + rect.h + 10 + 'px';
@@ -246,8 +287,6 @@ drawCanvas.addEventListener('mousemove', (e) => {
     if (selRect.h < 20) selRect.h = 20;
     drawOverlay();
     redrawAnnotations();
-
-    // Update dimension label
     dimLabel.style.display = 'block';
     dimLabel.style.left = selRect.x + selRect.w + 10 + 'px';
     dimLabel.style.top = selRect.y + selRect.h + 10 + 'px';
@@ -255,18 +294,44 @@ drawCanvas.addEventListener('mousemove', (e) => {
     return;
   }
 
+  // Dragging annotation
+  if (isDraggingAnnotation && selectedIdx >= 0) {
+    const a = annotations[selectedIdx];
+    let ox, oy;
+    if (a.type === 'text') {
+      ox = a.x; oy = a.y;
+      a.x = mx - dragOffset.x;
+      a.y = my - dragOffset.y;
+    } else {
+      const dx = mx - dragOffset.x - a.startX;
+      const dy = my - dragOffset.y - a.startY;
+      moveAnnotation(selectedIdx, dx, dy);
+      dragOffset = { x: mx - a.startX, y: my - a.startY };
+    }
+    redrawAnnotations();
+    return;
+  }
+
   if (mode === 'annotate') {
-    // Update cursor based on handle proximity
     const handle = hitTestHandle(mx, my);
     if (handle) {
       drawCanvas.style.cursor = handleCursor(handle);
     } else if (isInsideSelection(mx, my)) {
-      drawCanvas.style.cursor = tool === 'text' ? 'text' : 'crosshair';
+      // Show grab cursor when hovering over text annotation (any tool)
+      const hit = hitTestAnnotation(mx, my);
+      if (hit >= 0) {
+        drawCanvas.style.cursor = 'grab';
+      } else if (tool === 'move') {
+        drawCanvas.style.cursor = 'default';
+      } else if (tool === 'text') {
+        drawCanvas.style.cursor = 'text';
+      } else {
+        drawCanvas.style.cursor = 'crosshair';
+      }
     } else {
       drawCanvas.style.cursor = 'default';
     }
 
-    // Continue drawing
     if (currentAnnotation && isDrawing) {
       updateAnnotation(e);
     }
@@ -275,21 +340,13 @@ drawCanvas.addEventListener('mousemove', (e) => {
 
 drawCanvas.addEventListener('mouseup', (e) => {
   if (textActive) return;
-
-  const mx = e.clientX;
-  const my = e.clientY;
+  const mx = e.clientX, my = e.clientY;
 
   if (mode === 'select' && selecting) {
     selecting = false;
     dimLabel.style.display = 'none';
-
     selRect = normalizeRect(selStart, { x: mx, y: my });
-
-    if (selRect.w < 10 || selRect.h < 10) {
-      selRect = null;
-      return;
-    }
-
+    if (selRect.w < 10 || selRect.h < 10) { selRect = null; return; }
     enterAnnotateMode();
     return;
   }
@@ -303,14 +360,96 @@ drawCanvas.addEventListener('mouseup', (e) => {
     return;
   }
 
+  if (isDraggingAnnotation) {
+    isDraggingAnnotation = false;
+    redrawAnnotations();
+    return;
+  }
+
   if (mode === 'annotate' && currentAnnotation && isDrawing) {
     finishAnnotation(e);
   }
 });
 
+// ── Double-click to edit text ───────────────────────────────────────────────
+
+drawCanvas.addEventListener('dblclick', (e) => {
+  if (mode !== 'annotate' || textActive) return;
+  const mx = e.clientX, my = e.clientY;
+  const hit = hitTestAnnotation(mx, my);
+  if (hit >= 0 && annotations[hit].type === 'text') {
+    editTextAnnotation(hit);
+  }
+});
+
+function editTextAnnotation(idx) {
+  const a = annotations[idx];
+  textActive = true;
+  textInput.style.display = 'block';
+  textInput.style.left = a.x + 'px';
+  textInput.style.top = a.y + 'px';
+  textInput.style.color = a.color;
+  textInput.style.borderColor = a.color;
+  textInput.style.fontSize = a.fontSize + 'px';
+  textInput.value = a.text;
+
+  setTimeout(() => {
+    textInput.focus();
+    textInput.select();
+  }, 30);
+
+  let committed = false;
+
+  const commitEdit = () => {
+    if (committed) return;
+    committed = true;
+    const text = textInput.value.trim();
+    if (text) {
+      a.text = text;
+    } else {
+      annotations.splice(idx, 1);
+    }
+    selectedIdx = -1;
+    redrawAnnotations();
+    textInput.style.display = 'none';
+    textActive = false;
+    textInput.removeEventListener('keydown', onKey);
+    textInput.removeEventListener('blur', onBlur);
+  };
+
+  const onBlur = () => setTimeout(commitEdit, 100);
+
+  const onKey = (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitEdit(); }
+    else if (e.key === 'Escape') {
+      e.preventDefault();
+      committed = true;
+      textInput.style.display = 'none';
+      textActive = false;
+      textInput.removeEventListener('keydown', onKey);
+      textInput.removeEventListener('blur', onBlur);
+    }
+  };
+
+  textInput.addEventListener('keydown', onKey);
+  textInput.addEventListener('blur', onBlur);
+}
+
+// ── Text tool — create new text on click ────────────────────────────────────
+
+drawCanvas.addEventListener('click', (e) => {
+  if (mode !== 'annotate' || tool !== 'text' || textActive || resizing) return;
+  const mx = e.clientX, my = e.clientY;
+  // If clicking on existing text, don't create new — let dblclick handle edit
+  if (hitTestAnnotation(mx, my) >= 0) return;
+  if (isInsideSelection(mx, my) && !hitTestHandle(mx, my)) {
+    showTextInput(mx, my);
+  }
+});
+
 function normalizeRect(a, b) {
-  const x = Math.min(a.x, b.x);
-  const y = Math.min(a.y, b.y);
+  const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
   return { x, y, w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
 }
 
@@ -327,18 +466,12 @@ function repositionToolbar() {
   if (!selRect) return;
   requestAnimationFrame(() => {
     const tbRect = toolbar.getBoundingClientRect();
-    const toolbarH = tbRect.height;
-    const toolbarW = tbRect.width;
-
+    const toolbarH = tbRect.height, toolbarW = tbRect.width;
     let ty = selRect.y + selRect.h + 14;
-    if (ty + toolbarH > screenH - 16) {
-      ty = selRect.y - toolbarH - 14;
-    }
+    if (ty + toolbarH > screenH - 16) ty = selRect.y - toolbarH - 14;
     if (ty < 8) ty = 8;
-
     let tx = selRect.x + (selRect.w - toolbarW) / 2;
     tx = Math.max(8, Math.min(tx, screenW - toolbarW - 8));
-
     toolbar.style.left = tx + 'px';
     toolbar.style.top = ty + 'px';
   });
@@ -352,14 +485,23 @@ toolbar.addEventListener('click', (e) => e.stopPropagation());
 
 function setActiveTool(newTool) {
   tool = newTool;
+  selectedIdx = -1;
   document.querySelectorAll('.tool-btn[data-tool]').forEach((b) => {
     b.classList.toggle('active', b.dataset.tool === tool);
   });
-  drawCanvas.style.cursor = tool === 'text' ? 'text' : 'crosshair';
+
+  if (tool === 'move') {
+    drawCanvas.style.cursor = 'default';
+  } else if (tool === 'text') {
+    drawCanvas.style.cursor = 'text';
+  } else {
+    drawCanvas.style.cursor = 'crosshair';
+  }
 
   // Toggle stroke width vs font size slider
-  document.getElementById('stroke-group').style.display = tool === 'text' ? 'none' : 'flex';
+  document.getElementById('stroke-group').style.display = (tool === 'text' || tool === 'move') ? 'none' : 'flex';
   document.getElementById('fontsize-group').style.display = tool === 'text' ? 'flex' : 'none';
+  redrawAnnotations();
 }
 
 document.querySelectorAll('.tool-btn[data-tool]').forEach((btn) => {
@@ -373,7 +515,6 @@ function setColor(newColor) {
   color = newColor;
   document.querySelectorAll('.color-dot').forEach((d) => d.classList.remove('active'));
   document.getElementById('color-picker-btn').classList.remove('active');
-  // Check if it matches a preset
   const preset = document.querySelector(`.color-dot[data-color="${newColor}"]`);
   if (preset) {
     preset.classList.add('active');
@@ -385,17 +526,11 @@ function setColor(newColor) {
 }
 
 document.querySelectorAll('.color-dot').forEach((dot) => {
-  dot.addEventListener('click', (e) => {
-    e.stopPropagation();
-    setColor(dot.dataset.color);
-  });
+  dot.addEventListener('click', (e) => { e.stopPropagation(); setColor(dot.dataset.color); });
 });
 
 const colorPicker = document.getElementById('color-picker');
-colorPicker.addEventListener('input', (e) => {
-  e.stopPropagation();
-  setColor(e.target.value);
-});
+colorPicker.addEventListener('input', (e) => { e.stopPropagation(); setColor(e.target.value); });
 colorPicker.addEventListener('click', (e) => e.stopPropagation());
 colorPicker.addEventListener('mousedown', (e) => e.stopPropagation());
 
@@ -409,94 +544,52 @@ document.getElementById('font-size').addEventListener('input', (e) => {
   document.getElementById('fontsize-label').textContent = fontSize + 'px';
 });
 
-document.getElementById('undo-btn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  undo();
-});
-
-document.getElementById('copy-btn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  copyToClipboard();
-});
-
-document.getElementById('save-btn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  saveImage();
-});
-
-document.getElementById('cancel-btn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  cancel();
-});
+document.getElementById('undo-btn').addEventListener('click', (e) => { e.stopPropagation(); undo(); });
+document.getElementById('copy-btn').addEventListener('click', (e) => { e.stopPropagation(); copyToClipboard(); });
+document.getElementById('save-btn').addEventListener('click', (e) => { e.stopPropagation(); saveImage(); });
+document.getElementById('cancel-btn').addEventListener('click', (e) => { e.stopPropagation(); cancel(); });
 
 // ── Drawing annotations ─────────────────────────────────────────────────────
 
 function startAnnotation(e) {
-  const x = e.clientX;
-  const y = e.clientY;
-
-  if (tool === 'text') {
-    // For text, we handle it on mouseup to avoid focus issues
-    return;
-  }
-
+  const x = e.clientX, y = e.clientY;
   isDrawing = true;
   currentAnnotation = {
     type: tool,
     color,
     strokeWidth,
-    startX: x,
-    startY: y,
+    startX: x, startY: y,
     points: tool === 'pen' ? [{ x, y }] : [],
-    endX: x,
-    endY: y,
+    endX: x, endY: y,
   };
 }
 
 function updateAnnotation(e) {
   if (!currentAnnotation || !isDrawing) return;
-
   currentAnnotation.endX = e.clientX;
   currentAnnotation.endY = e.clientY;
-
   if (currentAnnotation.type === 'pen') {
     currentAnnotation.points.push({ x: e.clientX, y: e.clientY });
   }
-
   redrawAnnotations();
 }
 
 function finishAnnotation(e) {
   if (!currentAnnotation || !isDrawing) return;
-
   currentAnnotation.endX = e.clientX;
   currentAnnotation.endY = e.clientY;
-
   if (currentAnnotation.type === 'pen') {
     currentAnnotation.points.push({ x: e.clientX, y: e.clientY });
   }
-
   const dx = Math.abs(currentAnnotation.endX - currentAnnotation.startX);
   const dy = Math.abs(currentAnnotation.endY - currentAnnotation.startY);
   if (currentAnnotation.type === 'pen' || dx > 2 || dy > 2) {
     annotations.push(currentAnnotation);
   }
-
   currentAnnotation = null;
   isDrawing = false;
   redrawAnnotations();
 }
-
-// ── Text tool — triggered on click (mouseup), not mousedown ─────────────────
-
-drawCanvas.addEventListener('click', (e) => {
-  if (mode !== 'annotate' || tool !== 'text' || textActive || resizing) return;
-  const mx = e.clientX;
-  const my = e.clientY;
-  if (isInsideSelection(mx, my) && !hitTestHandle(mx, my)) {
-    showTextInput(mx, my);
-  }
-});
 
 function showTextInput(x, y) {
   textActive = true;
@@ -508,28 +601,17 @@ function showTextInput(x, y) {
   textInput.style.fontSize = fontSize + 'px';
   textInput.value = '';
 
-  // Delay focus so browser finishes processing the click event chain
-  setTimeout(() => {
-    textInput.focus();
-  }, 30);
+  setTimeout(() => { textInput.focus(); }, 30);
 
   let committed = false;
-  const capturedFontSize = fontSize; // capture current value at placement time
+  const capturedFontSize = fontSize;
 
   const commitText = () => {
     if (committed) return;
     committed = true;
-
     const text = textInput.value.trim();
     if (text) {
-      annotations.push({
-        type: 'text',
-        color,
-        text,
-        x,
-        y,
-        fontSize: capturedFontSize,
-      });
+      annotations.push({ type: 'text', color, text, x, y, fontSize: capturedFontSize });
       redrawAnnotations();
     }
     textInput.style.display = 'none';
@@ -538,19 +620,13 @@ function showTextInput(x, y) {
     textInput.removeEventListener('blur', onBlur);
   };
 
-  const onBlur = () => {
-    // Small delay to let potential click events resolve first
-    setTimeout(commitText, 100);
-  };
+  const onBlur = () => setTimeout(commitText, 100);
 
   const onKey = (e) => {
-    e.stopPropagation(); // Don't let keystrokes reach the global handler
-    if (e.key === 'Enter' && !e.shiftKey) {
+    e.stopPropagation();
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitText(); }
+    else if (e.key === 'Escape') {
       e.preventDefault();
-      commitText();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      // Cancel without saving
       committed = true;
       textInput.style.display = 'none';
       textActive = false;
@@ -578,7 +654,8 @@ function redrawAnnotations() {
 
   const all = currentAnnotation ? [...annotations, currentAnnotation] : annotations;
 
-  for (const a of all) {
+  for (let i = 0; i < all.length; i++) {
+    const a = all[i];
     drawCtx.save();
     drawCtx.lineCap = 'round';
     drawCtx.lineJoin = 'round';
@@ -586,10 +663,16 @@ function redrawAnnotations() {
     switch (a.type) {
       case 'rect': drawRectAnnotation(a, s); break;
       case 'highlight': drawHighlight(a, s); break;
+      case 'line': drawLine(a, s); break;
       case 'arrow': drawArrow(a, s); break;
       case 'pen': drawPen(a, s); break;
       case 'text': drawText(a, s); break;
       case 'blur': drawBlur(a, s); break;
+    }
+
+    // Draw selection highlight for selected annotation
+    if (i === selectedIdx) {
+      drawSelectionHighlight(a, s);
     }
 
     drawCtx.restore();
@@ -600,33 +683,59 @@ function redrawAnnotations() {
   }
 }
 
+function drawSelectionHighlight(a, s) {
+  drawCtx.setLineDash([4 * s, 4 * s]);
+  drawCtx.strokeStyle = '#4fc3f7';
+  drawCtx.lineWidth = 1.5 * s;
+
+  if (a.type === 'text') {
+    const b = getTextBounds(a);
+    const pad = 4;
+    drawCtx.strokeRect((b.x - pad) * s, (b.y - pad) * s, (b.w + pad * 2) * s, (b.h + pad * 2) * s);
+  } else if (a.type === 'pen') {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of a.points) {
+      if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
+    }
+    drawCtx.strokeRect((minX - 4) * s, (minY - 4) * s, (maxX - minX + 8) * s, (maxY - minY + 8) * s);
+  } else {
+    const x = Math.min(a.startX, a.endX), y = Math.min(a.startY, a.endY);
+    const w = Math.abs(a.endX - a.startX), h = Math.abs(a.endY - a.startY);
+    drawCtx.strokeRect((x - 4) * s, (y - 4) * s, (w + 8) * s, (h + 8) * s);
+  }
+  drawCtx.setLineDash([]);
+}
+
 function drawRectAnnotation(a, s) {
-  const x = Math.min(a.startX, a.endX) * s;
-  const y = Math.min(a.startY, a.endY) * s;
-  const w = Math.abs(a.endX - a.startX) * s;
-  const h = Math.abs(a.endY - a.startY) * s;
+  const x = Math.min(a.startX, a.endX) * s, y = Math.min(a.startY, a.endY) * s;
+  const w = Math.abs(a.endX - a.startX) * s, h = Math.abs(a.endY - a.startY) * s;
   drawCtx.strokeStyle = a.color;
   drawCtx.lineWidth = a.strokeWidth * s;
   drawCtx.strokeRect(x, y, w, h);
 }
 
 function drawHighlight(a, s) {
-  const x = Math.min(a.startX, a.endX) * s;
-  const y = Math.min(a.startY, a.endY) * s;
-  const w = Math.abs(a.endX - a.startX) * s;
-  const h = Math.abs(a.endY - a.startY) * s;
+  const x = Math.min(a.startX, a.endX) * s, y = Math.min(a.startY, a.endY) * s;
+  const w = Math.abs(a.endX - a.startX) * s, h = Math.abs(a.endY - a.startY) * s;
   drawCtx.fillStyle = a.color;
   drawCtx.globalAlpha = 0.3;
   drawCtx.fillRect(x, y, w, h);
   drawCtx.globalAlpha = 1;
 }
 
-function drawArrow(a, s) {
-  const x1 = a.startX * s;
-  const y1 = a.startY * s;
-  const x2 = a.endX * s;
-  const y2 = a.endY * s;
+function drawLine(a, s) {
+  drawCtx.strokeStyle = a.color;
+  drawCtx.lineWidth = a.strokeWidth * s;
+  drawCtx.beginPath();
+  drawCtx.moveTo(a.startX * s, a.startY * s);
+  drawCtx.lineTo(a.endX * s, a.endY * s);
+  drawCtx.stroke();
+}
 
+function drawArrow(a, s) {
+  const x1 = a.startX * s, y1 = a.startY * s;
+  const x2 = a.endX * s, y2 = a.endY * s;
   drawCtx.strokeStyle = a.color;
   drawCtx.fillStyle = a.color;
   drawCtx.lineWidth = a.strokeWidth * s;
@@ -662,7 +771,6 @@ function drawText(a, s) {
   drawCtx.fillStyle = a.color;
   drawCtx.font = `bold ${a.fontSize * s}px system-ui, sans-serif`;
   drawCtx.textBaseline = 'top';
-
   const lines = a.text.split('\n');
   for (let i = 0; i < lines.length; i++) {
     drawCtx.fillText(lines[i], a.x * s, (a.y + i * a.fontSize * 1.2) * s);
@@ -670,51 +778,35 @@ function drawText(a, s) {
 }
 
 function drawBlur(a, s) {
-  const x = Math.min(a.startX, a.endX);
-  const y = Math.min(a.startY, a.endY);
-  const w = Math.abs(a.endX - a.startX);
-  const h = Math.abs(a.endY - a.startY);
-
+  const x = Math.min(a.startX, a.endX), y = Math.min(a.startY, a.endY);
+  const w = Math.abs(a.endX - a.startX), h = Math.abs(a.endY - a.startY);
   if (w < 2 || h < 2) return;
-
-  const sx = Math.round(x * s);
-  const sy = Math.round(y * s);
-  const sw = Math.round(w * s);
-  const sh = Math.round(h * s);
-
+  const sx = Math.round(x * s), sy = Math.round(y * s);
+  const sw = Math.round(w * s), sh = Math.round(h * s);
   if (sw < 1 || sh < 1) return;
 
   try {
     const imageData = bgCtx.getImageData(sx, sy, sw, sh);
     const pixelSize = Math.max(8, Math.round(s * 8));
     const data = imageData.data;
-
     for (let py = 0; py < sh; py += pixelSize) {
       for (let px = 0; px < sw; px += pixelSize) {
         let r = 0, g = 0, b = 0, count = 0;
         for (let dy = 0; dy < pixelSize && py + dy < sh; dy++) {
           for (let dx = 0; dx < pixelSize && px + dx < sw; dx++) {
             const idx = ((py + dy) * sw + (px + dx)) * 4;
-            r += data[idx];
-            g += data[idx + 1];
-            b += data[idx + 2];
-            count++;
+            r += data[idx]; g += data[idx + 1]; b += data[idx + 2]; count++;
           }
         }
-        r = Math.round(r / count);
-        g = Math.round(g / count);
-        b = Math.round(b / count);
+        r = Math.round(r / count); g = Math.round(g / count); b = Math.round(b / count);
         for (let dy = 0; dy < pixelSize && py + dy < sh; dy++) {
           for (let dx = 0; dx < pixelSize && px + dx < sw; dx++) {
             const idx = ((py + dy) * sw + (px + dx)) * 4;
-            data[idx] = r;
-            data[idx + 1] = g;
-            data[idx + 2] = b;
+            data[idx] = r; data[idx + 1] = g; data[idx + 2] = b;
           }
         }
       }
     }
-
     drawCtx.putImageData(imageData, sx, sy);
   } catch (e) {
     drawCtx.fillStyle = 'rgba(128, 128, 128, 0.7)';
@@ -726,6 +818,7 @@ function drawBlur(a, s) {
 
 function undo() {
   if (annotations.length === 0) return;
+  if (selectedIdx >= 0) { selectedIdx = -1; }
   annotations.pop();
   redrawAnnotations();
 }
@@ -733,20 +826,23 @@ function undo() {
 // ── Export ───────────────────────────────────────────────────────────────────
 
 function getExportDataURL() {
-  const s = scaleFactor;
-  const cx = selRect.x * s;
-  const cy = selRect.y * s;
-  const cw = selRect.w * s;
-  const ch = selRect.h * s;
+  // Temporarily clear selection highlight for export
+  const savedIdx = selectedIdx;
+  selectedIdx = -1;
+  redrawAnnotations();
 
+  const s = scaleFactor;
+  const cx = selRect.x * s, cy = selRect.y * s;
+  const cw = selRect.w * s, ch = selRect.h * s;
   const exportCanvas = document.createElement('canvas');
   exportCanvas.width = cw;
   exportCanvas.height = ch;
   const ctx = exportCanvas.getContext('2d');
-
   ctx.drawImage(bgCanvas, cx, cy, cw, ch, 0, 0, cw, ch);
   ctx.drawImage(drawCanvas, cx, cy, cw, ch, 0, 0, cw, ch);
 
+  selectedIdx = savedIdx;
+  redrawAnnotations();
   return exportCanvas.toDataURL('image/png');
 }
 
@@ -777,36 +873,35 @@ function cancel() {
 // ── Keyboard shortcuts ──────────────────────────────────────────────────────
 
 document.addEventListener('keydown', (e) => {
-  // Don't handle when text input is active
   if (textActive) return;
 
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    cancel();
-    return;
-  }
+  if (e.key === 'Escape') { e.preventDefault(); cancel(); return; }
 
-  if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
-    e.preventDefault();
-    undo();
-    return;
-  }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
 
   if ((e.metaKey || e.ctrlKey) && e.key === 'c' && mode === 'annotate') {
-    e.preventDefault();
-    copyToClipboard();
-    return;
+    e.preventDefault(); copyToClipboard(); return;
   }
 
   if ((e.metaKey || e.ctrlKey) && e.key === 's' && mode === 'annotate') {
+    e.preventDefault(); saveImage(); return;
+  }
+
+  // Delete selected annotation
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIdx >= 0) {
     e.preventDefault();
-    saveImage();
+    annotations.splice(selectedIdx, 1);
+    selectedIdx = -1;
+    redrawAnnotations();
     return;
   }
 
-  // Tool shortcuts (single keys)
+  // Tool shortcuts
   if (mode === 'annotate' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-    const keyMap = { r: 'rect', h: 'highlight', a: 'arrow', p: 'pen', t: 'text', b: 'blur' };
+    const keyMap = {
+      v: 'move', r: 'rect', h: 'highlight', l: 'line',
+      a: 'arrow', p: 'pen', t: 'text', b: 'blur',
+    };
     if (keyMap[e.key]) {
       e.preventDefault();
       setActiveTool(keyMap[e.key]);

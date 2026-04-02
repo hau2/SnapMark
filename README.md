@@ -122,8 +122,8 @@ Build output goes to the `dist/` directory.
 
 | Action | macOS | Windows |
 |--------|-------|---------|
-| Capture Region | `Cmd+Shift+4` | `Ctrl+Shift+4` |
-| Capture Fullscreen | `Cmd+Shift+3` | `Ctrl+Shift+3` |
+| Capture Region | `Cmd+Shift+4` | `Alt+S` |
+| Capture Fullscreen | `Cmd+Shift+3` | `Alt+Shift+S` |
 
 These can be customized in Settings.
 

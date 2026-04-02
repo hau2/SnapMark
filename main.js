@@ -27,10 +27,11 @@ const screenshotsDir = path.join(app.getPath('userData'), 'screenshots');
 // ── Settings ────────────────────────────────────────────────────────────────
 
 function loadSettings() {
+  const isMac = process.platform === 'darwin';
   const defaults = {
     hotkeys: {
-      captureRegion: 'CommandOrControl+Shift+4',
-      captureFullscreen: 'CommandOrControl+Shift+3',
+      captureRegion: isMac ? 'Command+Shift+4' : 'Alt+S',
+      captureFullscreen: isMac ? 'Command+Shift+3' : 'Alt+Shift+S',
     },
     saveDirectory: path.join(app.getPath('desktop')),
     copyToClipboardAfterCapture: true,
@@ -449,28 +450,46 @@ function setupIPC() {
   });
 }
 
-// ── App lifecycle ──────────────────────────────────────────────────────────
+// ── Single instance lock ───────────────────────────────────────────────────
 
-app.whenReady().then(() => {
-  settings = loadSettings();
-  createMainWindow();
-  createTray();
-  registerHotkeys();
-  setupIPC();
+const gotLock = app.requestSingleInstanceLock();
 
-  app.on('activate', () => {
-    if (mainWindow) mainWindow.show();
+if (!gotLock) {
+  // Another instance is already running — quit this one
+  app.quit();
+} else {
+  // When a second instance is launched, focus the existing window
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
-});
 
-app.on('window-all-closed', () => {
-  // Keep running in tray
-});
+  // ── App lifecycle ────────────────────────────────────────────────────────
 
-app.on('before-quit', () => {
-  app.isQuitting = true;
-});
+  app.whenReady().then(() => {
+    settings = loadSettings();
+    createMainWindow();
+    createTray();
+    registerHotkeys();
+    setupIPC();
 
-app.on('will-quit', () => {
-  globalShortcut.unregisterAll();
-});
+    app.on('activate', () => {
+      if (mainWindow) mainWindow.show();
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    // Keep running in tray
+  });
+
+  app.on('before-quit', () => {
+    app.isQuitting = true;
+  });
+
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll();
+  });
+}

@@ -448,6 +448,12 @@ function setupIPC() {
       return false;
     }
   });
+
+  ipcMain.handle('open-external', (_e, url) => {
+    if (url.startsWith('https://') || url.startsWith('mailto:')) {
+      shell.openExternal(url);
+    }
+  });
 }
 
 // ── Single instance lock ───────────────────────────────────────────────────

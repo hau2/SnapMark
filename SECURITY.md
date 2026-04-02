@@ -1,6 +1,6 @@
 # SnapMark — Security & Safety Report
 
-**Document Version:** 1.0
+**Document Version:** 1.1
 **Date:** April 2, 2026
 **Author:** Le Cong Hau (Hari Le)
 **Contact:** leconghau095@gmail.com
@@ -10,7 +10,7 @@
 
 ## 1. Executive Summary
 
-SnapMark is an open-source, offline-only desktop screenshot and annotation tool built with Electron. It operates entirely on the local machine, makes **zero network connections**, collects **no user data**, and stores all screenshots locally. The full source code is publicly auditable on GitHub, and all release binaries are built transparently via GitHub Actions CI/CD.
+SnapMark is an open-source, offline-only desktop screenshot, annotation, and screen recording tool built with Electron. It operates entirely on the local machine, makes **zero network connections**, collects **no user data**, and stores all captures locally. The full source code is publicly auditable on GitHub, and all release binaries are built transparently via GitHub Actions CI/CD.
 
 ---
 
@@ -24,7 +24,7 @@ SnapMark is an open-source, offline-only desktop screenshot and annotation tool 
 | **Language** | Vanilla JavaScript, HTML, CSS |
 | **Runtime dependencies** | None (zero third-party libraries at runtime) |
 | **Build dependencies** | `electron` (framework), `electron-builder` (packaging) |
-| **Total source code** | ~600 lines across 6 files |
+| **Total source code** | ~1200 lines across 9 files |
 | **License** | MIT |
 
 ---
@@ -38,7 +38,7 @@ SnapMark makes **no outbound network requests** of any kind. The application:
 - Does NOT connect to any server or API
 - Does NOT send analytics or telemetry
 - Does NOT check for updates over the network
-- Does NOT upload screenshots or any user data
+- Does NOT upload screenshots, recordings, or any user data
 - Does NOT contain any tracking pixels, SDKs, or third-party services
 
 This can be independently verified by:
@@ -51,13 +51,16 @@ All data remains on the user's local machine:
 
 | Data | Location |
 |------|----------|
-| Screenshots | `{userData}/screenshots/` directory |
+| Screenshots (.png) | `{userData}/screenshots/` directory |
+| Recordings (.webm) | `{userData}/screenshots/` directory |
 | Settings (hotkeys, preferences) | `{userData}/settings.json` |
 | No cloud sync | Data is never uploaded or synced |
 
 **userData paths:**
 - macOS: `~/Library/Application Support/snapmark/`
 - Windows: `C:\Users\<username>\AppData\Roaming\snapmark\`
+
+Users can view the storage path, file count, and total size in Settings > Storage, and clear all captures with one click.
 
 ### 3.3 No Personal Data Collection
 
@@ -74,10 +77,10 @@ SnapMark does NOT collect, process, or store:
 
 | Permission | Platform | Purpose | Justification |
 |------------|----------|---------|---------------|
-| Screen Recording | macOS | Capture screen content via `desktopCapturer` API | Core functionality — cannot capture screenshots without this |
-| File System (app data) | Both | Read/write screenshots and settings | Store captured screenshots locally |
+| Screen Recording | macOS | Capture screen content via `desktopCapturer` and `getUserMedia` APIs | Core functionality — required for screenshots and screen recording |
+| File System (app data) | Both | Read/write screenshots, recordings, and settings | Store captured media locally |
 | Clipboard | Both | Copy screenshots to clipboard | User-initiated action only |
-| Global Shortcuts | Both | Register hotkeys for capture | User-configurable keyboard shortcuts |
+| Global Shortcuts | Both | Register hotkeys for capture and recording | User-configurable keyboard shortcuts |
 
 **No other permissions are requested or required.**
 
@@ -99,17 +102,20 @@ Anyone can:
 
 ```
 SnapMark/
-├── main.js           — Main process (window management, IPC, capture logic)
-├── preload.js        — Secure IPC bridge (contextBridge)
+├── main.js                    — Main process (window management, IPC, capture, recording)
+├── preload.js                 — Secure IPC bridge (contextBridge)
 ├── src/
-│   ├── index.html    — Main window UI (gallery, settings)
-│   ├── selector.html — Screenshot overlay UI (selection, annotation toolbar)
-│   ├── editor.js     — Annotation canvas logic
-│   └── settings.js   — Hotkey configuration
+│   ├── index.html             — Main window UI (gallery, settings, about)
+│   ├── selector.html          — Screenshot overlay UI (selection, annotation toolbar)
+│   ├── editor.js              — Annotation canvas logic (draw, move, text editing)
+│   ├── settings.js            — Hotkey and settings configuration
+│   ├── recorder.html          — Hidden window for screen recording engine
+│   ├── recorder.js            — MediaRecorder + canvas cropping logic
+│   └── recording-toolbar.html — Floating recording toolbar (timer, pause, stop)
 ├── assets/
-│   ├── icon.png      — Application icon
-│   └── tray-icon.png — System tray icon
-└── package.json      — Dependencies and build config
+│   ├── icon.png               — Application icon
+│   └── tray-icon.png          — System tray icon
+└── package.json               — Dependencies and build config
 ```
 
 ### 5.3 No Obfuscation
@@ -173,6 +179,7 @@ SnapMark follows Electron security guidelines:
 | Secure IPC | All communication uses `contextBridge` + `ipcRenderer.invoke()` |
 | Content Security Policy | CSP headers set in HTML — blocks inline scripts from external sources |
 | No Remote Content | App loads only local files — no remote URLs |
+| Single Instance Lock | Only one instance can run at a time |
 
 ### 7.2 IPC Channel Audit
 
@@ -184,10 +191,17 @@ All IPC channels and their purpose:
 | `capture-region` / `capture-full` | Renderer → Main | Trigger screenshot capture |
 | `copy-and-close` | Renderer → Main | Copy image to clipboard |
 | `save-image` | Renderer → Main | Save image to disk (with dialog) |
-| `get-screenshots` | Renderer → Main | List saved screenshots |
-| `delete-screenshot` | Renderer → Main | Delete a screenshot file |
+| `get-screenshots` | Renderer → Main | List saved screenshots and recordings |
+| `delete-screenshot` | Renderer → Main | Delete a capture file |
+| `clear-all-captures` | Renderer → Main | Delete all captures from storage |
 | `close-selector` | Renderer → Main | Close the capture overlay |
 | `open-external` | Renderer → Main | Open URL in browser (validated: only `https://` and `mailto:`) |
+| `start-recording` | Renderer → Main | Begin screen recording |
+| `stop-recording` | Renderer → Main | Stop screen recording |
+| `send-recording-command` | Renderer → Main | Pause/resume/stop recording |
+| `recording-complete` | Renderer → Main | Save recorded video data to disk |
+| `recording-time-update` | Renderer → Main | Update timer display on toolbar |
+| `region-selected` | Renderer → Main | Return selected region for recording |
 
 **No IPC channel transmits data outside the local machine.**
 
@@ -199,9 +213,11 @@ All IPC channels and their purpose:
 |--------|-----------|------------|
 | Data exfiltration | **None** | No network communication exists |
 | Malware/backdoor | **None** | Source is open, auditable, and builds are automated |
-| Unauthorized screen capture | **Low** | Capture only occurs on explicit user action (hotkey/button press) |
+| Unauthorized screen capture | **Low** | Capture/recording only occurs on explicit user action (hotkey/button press) |
+| Unauthorized screen recording | **Low** | Recording requires user to press hotkey/button, visible toolbar + red border during recording |
 | Local file access | **Low** | App only reads/writes its own data directory and user-chosen save paths |
 | Dependency supply chain | **Low** | Zero runtime dependencies; only Electron framework at build time |
+| Storage accumulation | **Low** | Users can view storage size and clear all captures in Settings |
 
 ---
 
@@ -213,9 +229,9 @@ All IPC channels and their purpose:
 3. Read `preload.js` — confirm limited IPC surface
 4. Check build logs at https://github.com/hau2/SnapMark/actions
 
-### Full Verification (15 minutes)
+### Full Verification (20 minutes)
 1. Clone the repository: `git clone https://github.com/hau2/SnapMark.git`
-2. Read all source files (~600 lines total)
+2. Read all source files (~1200 lines total)
 3. Confirm no network-related code: search for `fetch`, `http`, `net`, `request`, `axios`, `socket`
 4. Build from source: `npm install && npm run build:mac`
 5. Compare your build with the release binary
@@ -223,7 +239,8 @@ All IPC channels and their purpose:
 ### Network Monitoring
 1. Install a network monitor (e.g., Little Snitch on macOS, Wireshark on Windows)
 2. Launch SnapMark
-3. Confirm zero outbound connections
+3. Use all features (capture, record, save)
+4. Confirm zero outbound connections
 
 ---
 
@@ -236,6 +253,8 @@ SnapMark is a safe, transparent, offline-only application that:
 - Stores all data locally on the user's machine
 - Has fully open and auditable source code
 - Is built transparently via GitHub Actions
+- Shows clear visual indicators during screen recording (toolbar + red border)
+- Provides full storage management (view size, clear all)
 
 The macOS Gatekeeper and Windows SmartScreen warnings are solely due to the absence of paid code signing certificates, not due to any security concern with the application itself.
 

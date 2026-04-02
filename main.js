@@ -584,6 +584,7 @@ function setupIPC() {
     fs.writeFileSync(path.join(screenshotsDir, filename), buffer);
 
     showNotification('Recording saved', `${filename} saved to library.`);
+    showMainWindow();
     if (mainWindow) mainWindow.webContents.send('screenshots-updated');
   });
 }

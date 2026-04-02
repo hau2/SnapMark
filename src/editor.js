@@ -75,12 +75,36 @@ window.snapmark.onInitSelector((data) => {
     c.style.height = screenH + 'px';
   });
 
-  screenshotImg = new Image();
-  screenshotImg.onload = () => {
-    bgCtx.drawImage(screenshotImg, 0, 0, bgCanvas.width, bgCanvas.height);
-    drawOverlay();
-  };
-  screenshotImg.src = data.dataURL;
+  if (data.displayData) {
+    // Multi-monitor: stitch images from all displays
+    let loaded = 0;
+    const total = data.displayData.filter((d) => d.dataURL).length;
+    if (total === 0) { drawOverlay(); return; }
+
+    for (const d of data.displayData) {
+      if (!d.dataURL) continue;
+      const img = new Image();
+      img.onload = () => {
+        bgCtx.drawImage(
+          img,
+          0, 0, img.width, img.height,
+          d.x * scaleFactor, d.y * scaleFactor,
+          d.width * scaleFactor, d.height * scaleFactor
+        );
+        loaded++;
+        if (loaded >= total) drawOverlay();
+      };
+      img.src = d.dataURL;
+    }
+  } else if (data.dataURL) {
+    // Single display fallback
+    screenshotImg = new Image();
+    screenshotImg.onload = () => {
+      bgCtx.drawImage(screenshotImg, 0, 0, bgCanvas.width, bgCanvas.height);
+      drawOverlay();
+    };
+    screenshotImg.src = data.dataURL;
+  }
 });
 
 // ── Dark overlay with cutout ────────────────────────────────────────────────

@@ -121,7 +121,7 @@ function registerHotkeys() {
   }
 }
 
-// ── Active display detection ──────────────────────────────────────────────
+// ── Display helpers ───────────────────────────────────────────────────────
 
 function getActiveDisplay() {
   const cursor = screen.getCursorScreenPoint();
@@ -129,12 +129,21 @@ function getActiveDisplay() {
 }
 
 function findSourceForDisplay(sources, display) {
-  // Try matching by display_id
   const displayId = String(display.id);
   const match = sources.find((s) => String(s.display_id) === displayId);
-  if (match) return match;
-  // Fallback: return first source
-  return sources[0];
+  return match || sources[0];
+}
+
+function getVirtualBounds() {
+  const displays = screen.getAllDisplays();
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const d of displays) {
+    minX = Math.min(minX, d.bounds.x);
+    minY = Math.min(minY, d.bounds.y);
+    maxX = Math.max(maxX, d.bounds.x + d.bounds.width);
+    maxY = Math.max(maxY, d.bounds.y + d.bounds.height);
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
 // ── Capture (screenshot) ──────────────────────────────────────────────────
@@ -147,17 +156,21 @@ async function startCapture(mode) {
     if (mainWindow && mainWindow.isVisible()) mainWindow.hide();
     await new Promise((r) => setTimeout(r, 400));
 
-    const activeDisplay = getActiveDisplay();
-    const { width, height } = activeDisplay.size;
-    const scaleFactor = activeDisplay.scaleFactor || 1;
+    const displays = screen.getAllDisplays();
+    const maxScale = Math.max(...displays.map((d) => d.scaleFactor || 1));
 
+    // Capture all screens at their native resolution
     let sources;
     try {
+      // Use a large thumbnail to get all screens at good resolution
+      const largest = displays.reduce((a, b) =>
+        (a.size.width * a.scaleFactor) > (b.size.width * b.scaleFactor) ? a : b
+      );
       sources = await desktopCapturer.getSources({
         types: ['screen'],
         thumbnailSize: {
-          width: Math.round(width * scaleFactor),
-          height: Math.round(height * scaleFactor),
+          width: Math.round(largest.size.width * (largest.scaleFactor || 1)),
+          height: Math.round(largest.size.height * (largest.scaleFactor || 1)),
         },
       });
     } catch (e) {
@@ -167,10 +180,10 @@ async function startCapture(mode) {
 
     if (!sources || sources.length === 0) return;
 
-    const source = findSourceForDisplay(sources, activeDisplay);
-    const dataURL = source.thumbnail.toDataURL();
-
     if (mode === 'full') {
+      // Full capture of the active display only
+      const activeDisplay = getActiveDisplay();
+      const source = findSourceForDisplay(sources, activeDisplay);
       const buffer = source.thumbnail.toPNG();
       const filename = `screenshot-${Date.now()}.png`;
       ensureScreenshotsDir();
@@ -181,34 +194,65 @@ async function startCapture(mode) {
       return;
     }
 
-    openSelector(dataURL, width, height, scaleFactor, 'capture', activeDisplay);
+    // Region mode: build per-display data for stitching in the renderer
+    const virtualBounds = getVirtualBounds();
+    const displayData = displays.map((d) => {
+      const source = findSourceForDisplay(sources, d);
+      return {
+        dataURL: source ? source.thumbnail.toDataURL() : null,
+        x: d.bounds.x - virtualBounds.x,
+        y: d.bounds.y - virtualBounds.y,
+        width: d.bounds.width,
+        height: d.bounds.height,
+        scaleFactor: d.scaleFactor || 1,
+      };
+    });
+
+    openSelector(virtualBounds, maxScale, displayData, 'capture');
   } finally {
     if (mode === 'full') isCapturing = false;
   }
 }
 
-function openSelector(dataURL, screenW, screenH, scaleFactor, selectorMode, targetDisplay) {
+function openSelector(virtualBounds, scaleFactor, displayData, selectorMode) {
   if (selectorWindow) { selectorWindow.close(); selectorWindow = null; }
 
-  const display = targetDisplay || getActiveDisplay();
-  const { x, y } = display.bounds;
+  const isMac = process.platform === 'darwin';
 
   selectorWindow = new BrowserWindow({
-    x, y, width: screenW, height: screenH,
-    frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true,
-    resizable: false, movable: false, fullscreen: true,
-    hasShadow: false, enableLargerThanScreen: true,
+    x: virtualBounds.x,
+    y: virtualBounds.y,
+    width: virtualBounds.width,
+    height: virtualBounds.height,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    movable: false,
+    fullscreen: isMac, // macOS needs fullscreen; Windows uses positioned window
+    fullscreenable: isMac,
+    hasShadow: false,
+    enableLargerThanScreen: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false,
     },
   });
 
+  if (!isMac) {
+    // On Windows, maximize across all screens
+    selectorWindow.setAlwaysOnTop(true, 'screen-saver');
+  }
+
   selectorWindow.loadFile(path.join(__dirname, 'src', 'selector.html'));
 
   selectorWindow.webContents.once('did-finish-load', () => {
     selectorWindow.webContents.send('init-selector', {
-      dataURL, screenW, screenH, scaleFactor,
+      displayData,
+      screenW: virtualBounds.width,
+      screenH: virtualBounds.height,
+      scaleFactor,
       mode: selectorMode || 'capture',
     });
   });
@@ -253,17 +297,37 @@ async function startRecording(mode) {
   let isFullscreen = true;
 
   if (mode === 'region') {
+    // Reuse the multi-monitor selector for region selection
+    const displays = screen.getAllDisplays();
+    const maxScale = Math.max(...displays.map((d) => d.scaleFactor || 1));
     let bgSources;
     try {
+      const largest = displays.reduce((a, b) =>
+        (a.size.width * a.scaleFactor) > (b.size.width * b.scaleFactor) ? a : b
+      );
       bgSources = await desktopCapturer.getSources({
         types: ['screen'],
-        thumbnailSize: { width: Math.round(width * scaleFactor), height: Math.round(height * scaleFactor) },
+        thumbnailSize: {
+          width: Math.round(largest.size.width * (largest.scaleFactor || 1)),
+          height: Math.round(largest.size.height * (largest.scaleFactor || 1)),
+        },
       });
     } catch (_) { isRecording = false; return; }
 
-    const bgSource = findSourceForDisplay(bgSources, activeDisplay);
-    const dataURL = bgSource.thumbnail.toDataURL();
-    openSelector(dataURL, width, height, scaleFactor, 'record-select', activeDisplay);
+    const virtualBounds = getVirtualBounds();
+    const displayData = displays.map((d) => {
+      const src = findSourceForDisplay(bgSources, d);
+      return {
+        dataURL: src ? src.thumbnail.toDataURL() : null,
+        x: d.bounds.x - virtualBounds.x,
+        y: d.bounds.y - virtualBounds.y,
+        width: d.bounds.width,
+        height: d.bounds.height,
+        scaleFactor: d.scaleFactor || 1,
+      };
+    });
+
+    openSelector(virtualBounds, maxScale, displayData, 'record-select');
 
     region = await new Promise((resolve) => { pendingRecordRegion = resolve; });
     if (!region) { isRecording = false; return; }

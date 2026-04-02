@@ -14,14 +14,14 @@
     "mac": {
       "category": "public.app-category.utilities",
       "target": ["dmg", "zip"],
-      "icon": "assets/icon.icns",
+      "icon": "assets/icon.png",
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false
     },
     "win": {
       "target": ["nsis", "portable"],
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.png"
     },
     "nsis": {
       "oneClick": true,

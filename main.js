@@ -20,6 +20,7 @@ let mainWindow = null;
 let selectorWindow = null;
 let tray = null;
 let settings = null;
+let isCapturing = false;
 
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
 const screenshotsDir = path.join(app.getPath('userData'), 'screenshots');
@@ -100,59 +101,70 @@ function registerHotkeys() {
 // ── Capture ────────────────────────────────────────────────────────────────
 
 async function startCapture(mode) {
-  if (mainWindow && mainWindow.isVisible()) {
-    mainWindow.hide();
-  }
+  // Guard against double-trigger from fast hotkey presses
+  if (isCapturing || selectorWindow) return;
+  isCapturing = true;
 
-  // Wait for window to fully hide — critical on macOS
-  await new Promise((r) => setTimeout(r, 400));
-
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.size;
-  const scaleFactor = primaryDisplay.scaleFactor || 1;
-
-  let sources;
   try {
-    sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: {
-        width: Math.round(width * scaleFactor),
-        height: Math.round(height * scaleFactor),
-      },
-    });
-  } catch (e) {
-    console.error('desktopCapturer error:', e);
-    showMainWindow();
-    return;
-  }
-
-  if (!sources || sources.length === 0) {
-    console.error('No capture sources found');
-    showMainWindow();
-    return;
-  }
-
-  const source = sources[0];
-  const dataURL = source.thumbnail.toDataURL();
-
-  if (mode === 'full') {
-    const buffer = source.thumbnail.toPNG();
-    const filename = `screenshot-${Date.now()}.png`;
-    ensureScreenshotsDir();
-    const filePath = path.join(screenshotsDir, filename);
-    fs.writeFileSync(filePath, buffer);
-
-    if (settings.copyToClipboardAfterCapture) {
-      clipboard.writeImage(source.thumbnail);
+    if (mainWindow && mainWindow.isVisible()) {
+      mainWindow.hide();
     }
 
-    showNotification('Screenshot captured', 'Fullscreen screenshot saved and copied to clipboard.');
-    showMainWindow();
-    if (mainWindow) mainWindow.webContents.send('screenshots-updated');
-    return;
-  }
+    // Wait for window to fully hide — critical on macOS
+    await new Promise((r) => setTimeout(r, 400));
 
-  openSelector(dataURL, width, height, scaleFactor);
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width, height } = primaryDisplay.size;
+    const scaleFactor = primaryDisplay.scaleFactor || 1;
+
+    let sources;
+    try {
+      sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: {
+          width: Math.round(width * scaleFactor),
+          height: Math.round(height * scaleFactor),
+        },
+      });
+    } catch (e) {
+      console.error('desktopCapturer error:', e);
+      showMainWindow();
+      return;
+    }
+
+    if (!sources || sources.length === 0) {
+      console.error('No capture sources found');
+      showMainWindow();
+      return;
+    }
+
+    const source = sources[0];
+    const dataURL = source.thumbnail.toDataURL();
+
+    if (mode === 'full') {
+      const buffer = source.thumbnail.toPNG();
+      const filename = `screenshot-${Date.now()}.png`;
+      ensureScreenshotsDir();
+      const filePath = path.join(screenshotsDir, filename);
+      fs.writeFileSync(filePath, buffer);
+
+      if (settings.copyToClipboardAfterCapture) {
+        clipboard.writeImage(source.thumbnail);
+      }
+
+      showNotification('Screenshot captured', 'Fullscreen screenshot saved and copied to clipboard.');
+      showMainWindow();
+      if (mainWindow) mainWindow.webContents.send('screenshots-updated');
+      return;
+    }
+
+    openSelector(dataURL, width, height, scaleFactor);
+  } finally {
+    // For region mode, reset after selector closes; for full mode, reset now
+    if (mode === 'full') {
+      isCapturing = false;
+    }
+  }
 }
 
 function openSelector(dataURL, screenW, screenH, scaleFactor) {
@@ -198,6 +210,7 @@ function openSelector(dataURL, screenW, screenH, scaleFactor) {
 
   selectorWindow.on('closed', () => {
     selectorWindow = null;
+    isCapturing = false;
   });
 }
 

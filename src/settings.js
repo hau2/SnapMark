@@ -17,6 +17,14 @@ async function initSettings() {
     await window.snapmark.saveSettings(settings);
   };
 
+  // Launch at startup toggle
+  const openAtLogin = document.getElementById('open-at-login');
+  openAtLogin.checked = settings.openAtLogin !== false;
+  openAtLogin.onchange = async () => {
+    settings.openAtLogin = openAtLogin.checked;
+    await window.snapmark.saveSettings(settings);
+  };
+
   // Hotkey listeners
   document.querySelectorAll('.hotkey-input').forEach((el) => {
     el.addEventListener('click', () => startListening(el, settings));

@@ -36,6 +36,7 @@ function loadSettings() {
     },
     saveDirectory: path.join(app.getPath('desktop')),
     copyToClipboardAfterCapture: true,
+    openAtLogin: true,
   };
   try {
     if (fs.existsSync(settingsPath)) {
@@ -50,6 +51,18 @@ function saveSettings(newSettings) {
   settings = newSettings;
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
   registerHotkeys();
+  applyOpenAtLogin();
+}
+
+function applyOpenAtLogin() {
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: settings.openAtLogin !== false,
+      openAsHidden: true, // Start minimized to tray
+    });
+  } catch (e) {
+    console.error('Failed to set login item:', e.message);
+  }
 }
 
 // ── Screenshots directory ──────────────────────────────────────────────────
@@ -492,6 +505,7 @@ if (!gotLock) {
     createMainWindow();
     createTray();
     registerHotkeys();
+    applyOpenAtLogin();
     setupIPC();
 
     app.on('activate', () => {

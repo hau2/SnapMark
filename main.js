@@ -121,6 +121,22 @@ function registerHotkeys() {
   }
 }
 
+// ── Active display detection ──────────────────────────────────────────────
+
+function getActiveDisplay() {
+  const cursor = screen.getCursorScreenPoint();
+  return screen.getDisplayNearestPoint(cursor);
+}
+
+function findSourceForDisplay(sources, display) {
+  // Try matching by display_id
+  const displayId = String(display.id);
+  const match = sources.find((s) => String(s.display_id) === displayId);
+  if (match) return match;
+  // Fallback: return first source
+  return sources[0];
+}
+
 // ── Capture (screenshot) ──────────────────────────────────────────────────
 
 async function startCapture(mode) {
@@ -131,9 +147,9 @@ async function startCapture(mode) {
     if (mainWindow && mainWindow.isVisible()) mainWindow.hide();
     await new Promise((r) => setTimeout(r, 400));
 
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const { width, height } = primaryDisplay.size;
-    const scaleFactor = primaryDisplay.scaleFactor || 1;
+    const activeDisplay = getActiveDisplay();
+    const { width, height } = activeDisplay.size;
+    const scaleFactor = activeDisplay.scaleFactor || 1;
 
     let sources;
     try {
@@ -151,7 +167,7 @@ async function startCapture(mode) {
 
     if (!sources || sources.length === 0) return;
 
-    const source = sources[0];
+    const source = findSourceForDisplay(sources, activeDisplay);
     const dataURL = source.thumbnail.toDataURL();
 
     if (mode === 'full') {
@@ -165,17 +181,17 @@ async function startCapture(mode) {
       return;
     }
 
-    openSelector(dataURL, width, height, scaleFactor, 'capture');
+    openSelector(dataURL, width, height, scaleFactor, 'capture', activeDisplay);
   } finally {
     if (mode === 'full') isCapturing = false;
   }
 }
 
-function openSelector(dataURL, screenW, screenH, scaleFactor, selectorMode) {
+function openSelector(dataURL, screenW, screenH, scaleFactor, selectorMode, targetDisplay) {
   if (selectorWindow) { selectorWindow.close(); selectorWindow = null; }
 
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { x, y } = primaryDisplay.bounds;
+  const display = targetDisplay || getActiveDisplay();
+  const { x, y } = display.bounds;
 
   selectorWindow = new BrowserWindow({
     x, y, width: screenW, height: screenH,
@@ -200,7 +216,6 @@ function openSelector(dataURL, screenW, screenH, scaleFactor, selectorMode) {
   selectorWindow.on('closed', () => {
     selectorWindow = null;
     isCapturing = false;
-    // If recording was waiting for region and selector closed without providing one
     if (pendingRecordRegion) {
       pendingRecordRegion(null);
       pendingRecordRegion = null;
@@ -217,11 +232,11 @@ async function startRecording(mode) {
   if (mainWindow && mainWindow.isVisible()) mainWindow.hide();
   await new Promise((r) => setTimeout(r, 400));
 
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.size;
-  const scaleFactor = primaryDisplay.scaleFactor || 1;
+  const activeDisplay = getActiveDisplay();
+  const { width, height } = activeDisplay.size;
+  const scaleFactor = activeDisplay.scaleFactor || 1;
 
-  // Get source ID for the screen
+  // Get source ID for the active screen
   let sources;
   try {
     sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } });
@@ -231,13 +246,13 @@ async function startRecording(mode) {
     return;
   }
   if (!sources || sources.length === 0) { isRecording = false; return; }
-  const sourceId = sources[0].id;
+  const source = findSourceForDisplay(sources, activeDisplay);
+  const sourceId = source.id;
 
   let region = null;
   let isFullscreen = true;
 
   if (mode === 'region') {
-    // Take a screenshot for the selector background
     let bgSources;
     try {
       bgSources = await desktopCapturer.getSources({
@@ -246,28 +261,25 @@ async function startRecording(mode) {
       });
     } catch (_) { isRecording = false; return; }
 
-    const dataURL = bgSources[0].thumbnail.toDataURL();
-    openSelector(dataURL, width, height, scaleFactor, 'record-select');
+    const bgSource = findSourceForDisplay(bgSources, activeDisplay);
+    const dataURL = bgSource.thumbnail.toDataURL();
+    openSelector(dataURL, width, height, scaleFactor, 'record-select', activeDisplay);
 
-    // Wait for region selection
     region = await new Promise((resolve) => { pendingRecordRegion = resolve; });
     if (!region) { isRecording = false; return; }
 
-    // Close selector
     closeSelectorWindow();
     await new Promise((r) => setTimeout(r, 200));
 
     isFullscreen = false;
   }
 
-  // Show highlight border around recording area
   if (!isFullscreen && region) {
-    openRecordingHighlight(region, primaryDisplay.bounds);
+    openRecordingHighlight(region, activeDisplay.bounds);
   }
 
-  // Open hidden recorder window
   openRecorderWindow({ sourceId, region, scaleFactor, screenW: width, screenH: height, isFullscreen });
-  openRecordingToolbar();
+  openRecordingToolbar(activeDisplay);
 }
 
 function openRecorderWindow(config) {
@@ -288,21 +300,27 @@ function openRecorderWindow(config) {
   recorderWindow.on('closed', () => { recorderWindow = null; });
 }
 
-function openRecordingToolbar() {
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width } = primaryDisplay.size;
+function openRecordingToolbar(targetDisplay) {
+  const display = targetDisplay || getActiveDisplay();
+  const { x: dx, y: dy } = display.bounds;
+  const { width } = display.size;
 
   recordingToolbarWindow = new BrowserWindow({
-    width: 280, height: 52,
-    x: Math.round((width - 280) / 2), y: 20,
-    frame: false, transparent: true, alwaysOnTop: true,
-    skipTaskbar: true, resizable: false, focusable: false,
-    hasShadow: true,
+    width: 280, height: 56,
+    x: Math.round(dx + (width - 280) / 2), y: dy + 16,
+    frame: false, transparent: true,
+    alwaysOnTop: true, skipTaskbar: true,
+    resizable: false, hasShadow: true,
+    // focusable: true on Windows so toolbar is visible and clickable
+    focusable: process.platform === 'win32',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false,
     },
   });
+
+  // Keep it always on top at the highest level
+  recordingToolbarWindow.setAlwaysOnTop(true, 'screen-saver');
 
   recordingToolbarWindow.loadFile(path.join(__dirname, 'src', 'recording-toolbar.html'));
   recordingToolbarWindow.on('closed', () => { recordingToolbarWindow = null; });

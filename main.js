@@ -343,16 +343,14 @@ function setupIPC() {
     const internalPath = path.join(screenshotsDir, filename);
     fs.writeFileSync(internalPath, buffer);
 
-    // Close the selector overlay FIRST so dialog is visible
     closeSelectorWindow();
 
     // Small delay for window to close
     await new Promise((r) => setTimeout(r, 150));
 
-    // Show save dialog from main window context
-    showMainWindow();
-
-    const { filePath } = await dialog.showSaveDialog(mainWindow, {
+    // Show save dialog — use mainWindow as parent if visible, otherwise standalone
+    const dialogParent = mainWindow && mainWindow.isVisible() ? mainWindow : undefined;
+    const { filePath } = await dialog.showSaveDialog(dialogParent, {
       defaultPath: path.join(settings.saveDirectory, filename),
       filters: [{ name: 'PNG Image', extensions: ['png'] }],
     });
@@ -362,6 +360,7 @@ function setupIPC() {
     }
 
     showNotification('Screenshot saved', filePath ? `Saved to ${path.basename(filePath)}` : 'Saved to library.');
+    // Update gallery in background — don't show main window
     if (mainWindow) mainWindow.webContents.send('screenshots-updated');
     return true;
   });
@@ -393,7 +392,6 @@ function setupIPC() {
 
     closeSelectorWindow();
     showNotification('Copied to clipboard', 'Screenshot copied and saved to library.');
-    showMainWindow();
     if (mainWindow) mainWindow.webContents.send('screenshots-updated');
     return true;
   });
@@ -408,7 +406,6 @@ function setupIPC() {
 
     closeSelectorWindow();
     showNotification('Screenshot saved', 'Saved to library.');
-    showMainWindow();
     if (mainWindow) mainWindow.webContents.send('screenshots-updated');
     return true;
   });

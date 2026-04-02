@@ -31,12 +31,40 @@ async function initSettings() {
     el.addEventListener('click', () => startListening(el, settings));
   });
 
-  // Storage path
+  // Storage
   const dir = await window.snapmark.getScreenshotsDir();
   document.getElementById('storage-path').textContent = dir;
   document.getElementById('open-storage-btn').addEventListener('click', () => {
     window.snapmark.openScreenshotFolder();
   });
+
+  updateStorageSize();
+
+  document.getElementById('clear-storage-btn').addEventListener('click', async () => {
+    const size = await window.snapmark.getStorageSize();
+    if (size.count === 0) return;
+    if (!confirm(`Delete all ${size.count} captures (${formatBytes(size.bytes)})? This cannot be undone.`)) return;
+    const deleted = await window.snapmark.clearAllCaptures();
+    updateStorageSize();
+    if (typeof showToast === 'function') showToast(`Deleted ${deleted} files`, 'success');
+  });
+}
+
+async function updateStorageSize() {
+  const size = await window.snapmark.getStorageSize();
+  const el = document.getElementById('storage-size');
+  if (el) {
+    el.textContent = size.count > 0
+      ? `${size.count} files, ${formatBytes(size.bytes)}`
+      : 'No captures stored';
+  }
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
 }
 
 function startListening(el, settings) {

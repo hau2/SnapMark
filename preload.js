@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('snapmark', {
   saveScreenshotAs: (filePath) => ipcRenderer.invoke('save-screenshot-as', filePath),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   getScreenshotsDir: () => ipcRenderer.invoke('get-screenshots-dir'),
+  clearAllCaptures: () => ipcRenderer.invoke('clear-all-captures'),
+  getStorageSize: () => ipcRenderer.invoke('get-storage-size'),
 
   // Recording
   startRecording: (mode) => ipcRenderer.invoke('start-recording', mode),

@@ -538,6 +538,26 @@ function setupIPC() {
   });
 
   ipcMain.handle('get-screenshots-dir', () => screenshotsDir);
+
+  ipcMain.handle('get-storage-size', () => {
+    ensureScreenshotsDir();
+    try {
+      const files = fs.readdirSync(screenshotsDir).filter(f => f.endsWith('.png') || f.endsWith('.webm'));
+      let total = 0;
+      for (const f of files) total += fs.statSync(path.join(screenshotsDir, f)).size;
+      return { count: files.length, bytes: total };
+    } catch (_) { return { count: 0, bytes: 0 }; }
+  });
+
+  ipcMain.handle('clear-all-captures', () => {
+    ensureScreenshotsDir();
+    try {
+      const files = fs.readdirSync(screenshotsDir).filter(f => f.endsWith('.png') || f.endsWith('.webm'));
+      for (const f of files) fs.unlinkSync(path.join(screenshotsDir, f));
+      if (mainWindow) mainWindow.webContents.send('screenshots-updated');
+      return files.length;
+    } catch (_) { return 0; }
+  });
   ipcMain.handle('open-external', (_e, url) => {
     if (url.startsWith('https://') || url.startsWith('mailto:')) shell.openExternal(url);
   });
